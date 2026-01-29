@@ -1,0 +1,24 @@
+body {
+  margin: 0;
+  overflow: hidden;
+  background-color: #0b0b0b;
+}
+
+canvas {
+  display: block;
+}
+
+.tp-minimal {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  width: 300px;
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+}
+
+.tp-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}

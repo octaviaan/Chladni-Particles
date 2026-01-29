@@ -1,50 +1,50 @@
 import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { GUI } from "lil-gui";
+import { Pane } from "tweakpane";
 
 // --- Configuration ---
 const CONFIG = {
-  particleCount: 200000,
+  particleCount: 400000,
   gridSize: 256, // Resolution of the underlying energy field
   settleStrength: 1.5, // How fast particles move to nodal lines
   jitter: 0.2, // Brownian motion to keep them "alive"
-  drag: 0.88, // Friction
+  drag: 0.85, // Friction
   speedLimit: 2.0,
-  viewScale: 700, // Size of the world
+  viewScale: 600, // Size of the world
   color: "#9fd3ff",
   particleSize: 2.5,
-  fogDensity: 0.0005,
-  cameraZoom: 1,
-  captureScale: 2,
+  particleOpacity: 1.0,
+  cameraZoom: 2.1,
   exportBaseSize: 2048,
-  recordFps: 30,
-  recordWidth: 1280,
-  recordHeight: 720,
+  exportOpaque: false,
+
   modeCount: 4,
   modeMin: 2,
   modeMax: 12,
-  shape: "Rectangle",
-  rectAspect: 1,
+
+  rectAspect: 2.1,
+
   waveTypeA: "Cartesian",
   waveTypeB: "Radial",
   waveMix: 0.5,
+
+  // Less organic controls
+  integerModes: true, // round m,n to integers for cleaner straight lines
   randomPhase: true,
   randomRotation: true,
   rotationMaxDeg: 30,
-  modeScaleJitter: 0.15,
   modeStyle: "Balanced",
-  // Wave types: "Cartesian", "Radial", "Spiral", "Hexagonal", "Quasicrystal", "Lissajous", "Moire", "Chevron", "Ring", "Flower", "GridWarp", "Diamond", "Square", "Lattice", "Kaleidoscope", "Voronoi", "Perlin"
+
+  // Wave types:
+  // "Cartesian", "Radial", "Spiral", "Hexagonal", "Quasicrystal", "Lissajous",
+  // "Moire", "Chevron", "Ring", "Flower", "GridWarp", "Diamond", "Square",
+  // "Lattice", "Kaleidoscope", "Voronoi", "Perlin"
 };
 
 // --- Global Variables ---
 let scene, camera, renderer, geometry, points;
 let positions, velocities; // Float32Arrays for high performance
-let frameId;
-let recorder = null;
-let recordingChunks = [];
-let isRecording = false;
-let recordCanvas = null;
-let recordCtx = null;
+let refreshUI = null;
+let suppressUIEvents = false;
 
 // Field Data (Pre-computed grid)
 let fieldSize = 0;
@@ -65,8 +65,6 @@ animate();
 function init() {
   // 1. Scene & Camera
   scene = new THREE.Scene();
-  scene.fog = null;
-
   const aspect = window.innerWidth / window.innerHeight;
   const frustumSize = CONFIG.viewScale * 2;
   camera = new THREE.OrthographicCamera(
@@ -78,9 +76,8 @@ function init() {
     3000,
   );
   camera.position.set(0, 0, 500); // True top-down view
-  camera.zoom = CONFIG.cameraZoom;
+  applyCameraZoom(CONFIG.cameraZoom);
   camera.lookAt(0, 0, 0);
-  camera.updateProjectionMatrix();
 
   // 2. Renderer
   renderer = new THREE.WebGLRenderer({
@@ -89,26 +86,14 @@ function init() {
     preserveDrawingBuffer: true,
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // Limit pixel ratio for performance
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setClearColor(0x000000, 1);
   document.body.appendChild(renderer.domElement);
 
-  // 3. Controls
-  const controls = new OrbitControls(camera, renderer.domElement);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.05;
-  controls.maxDistance = 1500;
-  controls.minDistance = 100;
-  controls.target.set(0, 0, 0);
-  controls.enableRotate = false; // Keep top-down view locked
-  controls.minPolarAngle = Math.PI / 2;
-  controls.maxPolarAngle = Math.PI / 2;
-
-  // 4. Particle System Setup
+  // 3. Particle System Setup
   buildParticles();
 
   // 5. Material
-  // We use a simple circular sprite texture for efficiency
   const sprite = new THREE.TextureLoader().load(
     "https://threejs.org/examples/textures/sprites/disc.png",
   );
@@ -118,12 +103,12 @@ function init() {
     vertexColors: false,
     size: CONFIG.particleSize,
     map: sprite,
-    alphaTest: 0.2, // Performance optimization
-    transparent: false,
-    opacity: 1,
-    blending: THREE.AdditiveBlending, // Makes overlapping particles glow
-    depthWrite: false, // Crucial for transparency performance
-    sizeAttenuation: false, // Keep points visible when zooming out
+    alphaTest: 0.0,
+    transparent: true,
+    opacity: CONFIG.particleOpacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    sizeAttenuation: false,
   });
 
   points = new THREE.Points(geometry, material);
@@ -131,7 +116,6 @@ function init() {
 
   // 6. Event Listeners
   window.addEventListener("resize", onWindowResize);
-  // Randomization is now only via GUI
 
   setupGUI();
 }
@@ -148,16 +132,14 @@ function allocateField() {
 function buildParticles() {
   geometry = new THREE.BufferGeometry();
 
-  // Allocate memory
-  positions = new Float32Array(CONFIG.particleCount * 3); // x, y, z
-  velocities = new Float32Array(CONFIG.particleCount * 2); // vx, vy (we don't need vz physics)
+  positions = new Float32Array(CONFIG.particleCount * 3);
+  velocities = new Float32Array(CONFIG.particleCount * 2);
 
-  // Initialize particles randomly within the chosen shape
   for (let i = 0; i < CONFIG.particleCount; i++) {
     const [x, y] = randomPointInShape();
     positions[i * 3 + 0] = x;
     positions[i * 3 + 1] = y;
-    positions[i * 3 + 2] = 0; // z
+    positions[i * 3 + 2] = 0;
 
     velocities[i * 2 + 0] = 0;
     velocities[i * 2 + 1] = 0;
@@ -174,7 +156,6 @@ function rebuildParticles() {
 }
 
 function rebuildField() {
-  // Calculates the standing wave pattern on a grid
   const G = CONFIG.gridSize;
   const typeA = CONFIG.waveTypeA;
   const typeB = CONFIG.waveTypeB;
@@ -201,15 +182,19 @@ function rebuildField() {
     const ix1 = lerp(n01, n11, sx);
     return lerp(ix0, ix1, sy);
   };
-  // Helpers below used by select wave types.
 
   const baseCartesian = (cx, cy, mode) => {
     const cosR = mode.cos;
     const sinR = mode.sin;
-    const rx = (cx * cosR - cy * sinR) * mode.sx;
-    const ry = (cx * sinR + cy * cosR) * mode.sy;
+
+    // rotated coordinates
+    let rx = cx * cosR - cy * sinR;
+    let ry = cx * sinR + cy * cosR;
+
+    // controlled "bend" that stays structured (not organic noise)
     const u = rx + 0.5;
     const v = ry + 0.5;
+
     return (
       Math.sin(mode.m * Math.PI * u + mode.px) *
       Math.sin(mode.n * Math.PI * v + mode.py)
@@ -235,8 +220,8 @@ function rebuildField() {
     if (type === "Hexagonal") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       const kFreq = mode.m * Math.PI;
       const v1 = rx;
       const v2 = -0.5 * rx + 0.866 * ry;
@@ -250,8 +235,8 @@ function rebuildField() {
     if (type === "Quasicrystal") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       const kFreq = mode.m * Math.PI;
       let sum = 0;
       for (let j = 0; j < 5; j++) {
@@ -264,8 +249,8 @@ function rebuildField() {
     if (type === "Lissajous") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       return (
         Math.sin(mode.m * Math.PI * rx + mode.px) *
         Math.sin(mode.n * Math.PI * ry + mode.py)
@@ -274,8 +259,8 @@ function rebuildField() {
     if (type === "Moire") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       const rot2 = mode.px * 0.25;
       const cos2 = Math.cos(rot2);
       const sin2 = Math.sin(rot2);
@@ -292,8 +277,8 @@ function rebuildField() {
     if (type === "Chevron") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       const d1 = rx + ry;
       const d2 = rx - ry;
       return (
@@ -317,8 +302,8 @@ function rebuildField() {
     if (type === "GridWarp") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       const warp = 0.35;
       const u = rx + warp * Math.sin(mode.n * Math.PI * ry + mode.py);
       const v = ry + warp * Math.sin(mode.m * Math.PI * rx + mode.px);
@@ -338,8 +323,8 @@ function rebuildField() {
     if (type === "Lattice") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       return (
         Math.cos(mode.m * Math.PI * rx + mode.px) *
         Math.cos(mode.n * Math.PI * ry + mode.py)
@@ -371,18 +356,19 @@ function rebuildField() {
     if (type === "Perlin") {
       const cosR = mode.cos;
       const sinR = mode.sin;
-      const rx = (cx * cosR - cy * sinR) * mode.sx;
-      const ry = (cx * sinR + cy * cosR) * mode.sy;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
       const scale = Math.max(1.5, mode.m);
       const n = valueNoise(rx * scale + mode.px, ry * scale + mode.py);
       return n;
     }
 
-    // Cartesian
+    // Cartesian (default)
     return baseCartesian(cx, cy, mode);
   };
 
-  // 1. Compute Energy Field (Amplitude^2)
+  // 1) Compute Energy Field
+  const gamma = 1.0;
   for (let y = 0; y < G; y++) {
     for (let x = 0; x < G; x++) {
       const tx = x / (G - 1);
@@ -399,12 +385,13 @@ function rebuildField() {
         const wave = waveA * (1 - mix) + waveB * mix;
         phi += mode.a * wave;
       }
-      energy[idx] = phi * phi;
+      let e = phi * phi;
+      if (gamma !== 1.0) e = Math.pow(e, gamma);
+      energy[idx] = e;
     }
   }
 
-  // 2. Compute Gradients (dE/dx, dE/dy)
-  // This tells particles which way is "downhill" towards the nodal lines
+  // 2) Compute Gradients
   const range = CONFIG.viewScale * 2;
   const cellSize = range / (G - 1);
 
@@ -437,13 +424,8 @@ function updateParticles() {
   const vel = velocities;
   const count = CONFIG.particleCount;
 
-  // Optimization: Pre-calculate constants to avoid division and recalculation inside the loop
   const gridScale = (G - 1) / fullRange;
-  const shape = CONFIG.shape;
   const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
-  const ovalRy = Math.max(1, Math.round(range * 0.65));
-  const rangeSq = range * range;
-  const ovalRySq = ovalRy * ovalRy;
 
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
@@ -454,19 +436,10 @@ function updateParticles() {
     let vx = vel[i2];
     let vy = vel[i2 + 1];
 
-    // 1. Boundary Check (Inlined for performance)
+    // 1. Boundary Check
     let inside = true;
-    if (shape === "Rectangle") {
-      if (x < -range || x > range || y < -rectRy || y > rectRy) inside = false;
-    } else if (shape === "Circle") {
-      if (x * x + y * y > rangeSq) inside = false;
-    } else if (shape === "Oval") {
-      const nx = x / range;
-      const ny = y / ovalRy;
-      if (nx * nx + ny * ny > 1) inside = false;
-    }
+    if (x < -range || x > range || y < -rectRy || y > rectRy) inside = false;
 
-    // Teleport if out of bounds
     if (!inside) {
       const respawn = randomPointInShape();
       x = respawn[0];
@@ -476,11 +449,9 @@ function updateParticles() {
     }
 
     // 2. Bilinear Interpolation of Gradients
-    // Convert world position to grid coordinates
     let gx_pos = (x + range) * gridScale;
     let gy_pos = (y + range) * gridScale;
 
-    // Clamp to grid edges
     gx_pos = Math.max(0, Math.min(G - 1.001, gx_pos));
     gy_pos = Math.max(0, Math.min(G - 1.001, gy_pos));
 
@@ -494,35 +465,28 @@ function updateParticles() {
     const idx01 = idx00 + G;
     const idx11 = idx01 + 1;
 
-    // Interpolate Gradient X
     const gxVal =
       (gradX[idx00] * (1 - tx) + gradX[idx10] * tx) * (1 - ty) +
       (gradX[idx01] * (1 - tx) + gradX[idx11] * tx) * ty;
 
-    // Interpolate Gradient Y
     const gyVal =
       (gradY[idx00] * (1 - tx) + gradY[idx10] * tx) * (1 - ty) +
       (gradY[idx01] * (1 - tx) + gradY[idx11] * tx) * ty;
 
-    // Interpolate Energy (for Z height)
     const eVal =
       (energy[idx00] * (1 - tx) + energy[idx10] * tx) * (1 - ty) +
       (energy[idx01] * (1 - tx) + energy[idx11] * tx) * ty;
 
     // 3. Update Velocity (Gradient Descent)
-    // Move opposite to gradient (downhill)
     vx -= gxVal * CONFIG.settleStrength;
     vy -= gyVal * CONFIG.settleStrength;
 
-    // Jitter (Brownian motion)
     vx += (Math.random() - 0.5) * CONFIG.jitter;
     vy += (Math.random() - 0.5) * CONFIG.jitter;
 
-    // Apply Drag
     vx *= CONFIG.drag;
     vy *= CONFIG.drag;
 
-    // Speed Limit
     const speed = Math.sqrt(vx * vx + vy * vy);
     if (speed > CONFIG.speedLimit) {
       const scale = CONFIG.speedLimit / speed;
@@ -536,13 +500,12 @@ function updateParticles() {
 
     pos[i3] = x;
     pos[i3 + 1] = y;
-    pos[i3 + 2] = eVal * 2; // Minimal Z height for 2D plate look
+    pos[i3 + 2] = eVal * 2;
 
     vel[i2] = vx;
     vel[i2 + 1] = vy;
   }
 
-  // Mark geometry as needing an update on the GPU
   geometry.attributes.position.needsUpdate = true;
 }
 
@@ -557,92 +520,73 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
-function isInsideShape(x, y) {
-  const range = CONFIG.viewScale;
-  const rx = range;
-  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
-  const ry =
-    CONFIG.shape === "Oval" ? Math.max(1, Math.round(range * 0.65)) : range;
-
-  if (CONFIG.shape === "Circle") {
-    return x * x + y * y <= range * range;
-  }
-
-  if (CONFIG.shape === "Oval") {
-    const nx = x / rx;
-    const ny = y / ry;
-    return nx * nx + ny * ny <= 1;
-  }
-
-  if (CONFIG.shape === "Rectangle") {
-    return x >= -range && x <= range && y >= -rectRy && y <= rectRy;
-  }
-
-  // Rectangle (default)
-  return x >= -range && x <= range && y >= -rectRy && y <= rectRy;
-}
-
 function randomPointInShape() {
   const range = CONFIG.viewScale;
-  const rx = range;
   const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
-  const ry =
-    CONFIG.shape === "Oval" ? Math.max(1, Math.round(range * 0.65)) : range;
 
-  // Rejection sampling for circle/oval
-  if (CONFIG.shape === "Circle" || CONFIG.shape === "Oval") {
-    while (true) {
-      const x = (Math.random() - 0.5) * 2 * rx;
-      const y = (Math.random() - 0.5) * 2 * ry;
-      if (isInsideShape(x, y)) {
-        return [x, y];
-      }
-    }
-  }
-
-  // Rectangle (default)
   return [
     (Math.random() - 0.5) * 2 * range,
     (Math.random() - 0.5) * 2 * rectRy,
   ];
 }
 
+function quantizeModeValue(v) {
+  if (!CONFIG.integerModes) return v;
+  return Math.max(1, Math.round(v));
+}
+
 function randomizeModes() {
-  // Generate 3 random wave modes
+  const modeStyles = ["Straight", "Clean", "Balanced", "Complex"];
+  const deviceMemory = navigator.deviceMemory || 8;
+  const cores = navigator.hardwareConcurrency || 8;
+  const perfScale = Math.min(
+    1,
+    Math.max(0.5, (deviceMemory / 8) * (cores / 8)),
+  );
+  const maxModes = Math.max(4, Math.round(10 * perfScale));
+  CONFIG.modeStyle = modeStyles[Math.floor(Math.random() * modeStyles.length)];
+  CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
+  CONFIG.modeMin = Math.random() * 20;
+  CONFIG.modeMax = CONFIG.modeMin + Math.random() * (50 - CONFIG.modeMin);
+
+  CONFIG.integerModes = Math.random() < 0.5;
+  CONFIG.randomPhase = Math.random() < 0.5;
+  CONFIG.randomRotation = Math.random() < 0.5;
+  CONFIG.rotationMaxDeg = Math.floor(Math.random() * 91);
+
   modes = [];
   for (let i = 0; i < CONFIG.modeCount; i++) {
     const rot =
       CONFIG.randomRotation && CONFIG.rotationMaxDeg > 0
         ? ((Math.random() * 2 - 1) * CONFIG.rotationMaxDeg * Math.PI) / 180
         : 0;
-    const sx = 1 + (Math.random() * 2 - 1) * CONFIG.modeScaleJitter;
-    const sy = 1 + (Math.random() * 2 - 1) * CONFIG.modeScaleJitter;
+
     const mRaw =
       Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
     const nRaw =
       Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
-    const m = mRaw;
-    const n = nRaw;
+
+    const m = quantizeModeValue(mRaw);
+    const n = quantizeModeValue(nRaw);
+
     modes.push({
       m,
       n,
-      a: Math.random() * (1 - i * 0.2), // Dampen amplitude for secondary modes
+      a: Math.random() * (1 - i * 0.2),
       px: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       py: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       cos: Math.cos(rot),
       sin: Math.sin(rot),
-      sx,
-      sy,
     });
   }
 
   normalizeModeAmplitudes();
   rebuildField();
 
-  // "Kick" the particles so they find the new pattern
-  for (let i = 0; i < CONFIG.particleCount; i++) {
-    velocities[i * 2] += (Math.random() - 0.5) * 5;
-    velocities[i * 2 + 1] += (Math.random() - 0.5) * 5;
+  if (refreshUI) {
+    suppressUIEvents = true;
+    refreshUI();
+    suppressUIEvents = false;
   }
 }
 
@@ -653,14 +597,15 @@ function initModes() {
       CONFIG.randomRotation && CONFIG.rotationMaxDeg > 0
         ? ((Math.random() * 2 - 1) * CONFIG.rotationMaxDeg * Math.PI) / 180
         : 0;
-    const sx = 1 + (Math.random() * 2 - 1) * CONFIG.modeScaleJitter;
-    const sy = 1 + (Math.random() * 2 - 1) * CONFIG.modeScaleJitter;
+
     const mRaw =
       Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
     const nRaw =
       Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
-    const m = mRaw;
-    const n = nRaw;
+
+    const m = quantizeModeValue(mRaw);
+    const n = quantizeModeValue(nRaw);
+
     modes.push({
       m,
       n,
@@ -669,8 +614,6 @@ function initModes() {
       py: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       cos: Math.cos(rot),
       sin: Math.sin(rot),
-      sx,
-      sy,
     });
   }
   normalizeModeAmplitudes();
@@ -678,154 +621,163 @@ function initModes() {
 
 function normalizeModeAmplitudes() {
   let sum = 0;
-  for (let i = 0; i < modes.length; i++) {
-    sum += Math.abs(modes[i].a);
-  }
+  for (let i = 0; i < modes.length; i++) sum += Math.abs(modes[i].a);
   if (sum <= 0) return;
   const inv = 1 / sum;
-  for (let i = 0; i < modes.length; i++) {
-    modes[i].a *= inv;
-  }
+  for (let i = 0; i < modes.length; i++) modes[i].a *= inv;
 }
 
 function animate() {
-  frameId = requestAnimationFrame(animate);
+  requestAnimationFrame(animate);
   updateParticles();
   renderer.render(scene, camera);
-  if (isRecording && recordCtx && recordCanvas) {
-    recordCtx.drawImage(
-      renderer.domElement,
-      0,
-      0,
-      recordCanvas.width,
-      recordCanvas.height,
-    );
-  }
+}
+
+function applyCameraZoom(value) {
+  camera.zoom = value;
+  camera.updateProjectionMatrix();
 }
 
 function setupGUI() {
-  const gui = new GUI({ width: 320 });
-  const controllers = [];
-  let modeMinController;
-  let modeMaxController;
-  let modeCountController;
+  const pane = new Pane({ title: "Controls" });
+  pane.element.classList.add("tp-minimal");
+  const inputs = [];
 
-  const sim = gui.addFolder("Simulation");
-  controllers.push(
-    sim.add(CONFIG, "particleCount", 10000, 500000, 1000).onFinishChange(() => {
-      rebuildParticles();
-    }),
+  const waveTypeOptions = {
+    Cartesian: "Cartesian",
+    Radial: "Radial",
+    Spiral: "Spiral",
+    Hexagonal: "Hexagonal",
+    Quasicrystal: "Quasicrystal",
+    Lissajous: "Lissajous",
+    Moire: "Moire",
+    Chevron: "Chevron",
+    Ring: "Ring",
+    Flower: "Flower",
+    GridWarp: "GridWarp",
+    Diamond: "Diamond",
+    Square: "Square",
+    Lattice: "Lattice",
+    Kaleidoscope: "Kaleidoscope",
+    Voronoi: "Voronoi",
+    Perlin: "Perlin",
+  };
+
+  const particlesFolder = pane.addFolder({ title: "Particles" });
+  inputs.push(
+    particlesFolder
+      .addBinding(CONFIG, "particleCount", {
+        min: 100000,
+        max: 800000,
+        step: 20000,
+        label: "Count",
+      })
+      .on("change", () => rebuildParticles()),
   );
-  controllers.push(sim.add(CONFIG, "settleStrength", 0.1, 4.0, 0.01));
-  controllers.push(sim.add(CONFIG, "jitter", 0.0, 0.25, 0.01));
-  controllers.push(sim.add(CONFIG, "drag", 0.7, 0.9, 0.01));
-  controllers.push(sim.add(CONFIG, "speedLimit", 0.5, 10.0, 0.1));
-  // viewScale is fixed via CONFIG default
-  controllers.push(
-    sim.add(CONFIG, "viewScale", 300, 800, 1).onFinishChange(() => {
-      rebuildParticles();
-      rebuildField();
-      camera.zoom = CONFIG.cameraZoom;
-      camera.updateProjectionMatrix();
-      onWindowResize();
-    }),
-  );
-  controllers.push(
-    sim
-      .add(CONFIG, "shape", ["Rectangle", "Circle", "Oval"])
-      .onFinishChange(() => {
-        rebuildParticles();
+  inputs.push(
+    particlesFolder
+      .addBinding(CONFIG, "particleSize", {
+        min: 1,
+        max: 3,
+        step: 0.5,
+        label: "Size",
+      })
+      .on("change", (ev) => {
+        points.material.size = ev.value;
       }),
   );
-  controllers.push(
-    sim
-      .add(CONFIG, "waveTypeA", [
-        "Cartesian",
-        "Radial",
-        "Spiral",
-        "Hexagonal",
-        "Quasicrystal",
-        "Lissajous",
-        "Moire",
-        "Chevron",
-        "Ring",
-        "Flower",
-        "GridWarp",
-        "Diamond",
-        "Square",
-        "Lattice",
-        "Kaleidoscope",
-        "Voronoi",
-        "Perlin",
-      ])
-      .onFinishChange(() => {
-        rebuildField();
+  inputs.push(
+    particlesFolder
+      .addBinding(CONFIG, "color", { label: "Color" })
+      .on("change", (ev) => {
+        points.material.color.set(ev.value);
       }),
   );
-  controllers.push(
-    sim
-      .add(CONFIG, "waveTypeB", [
-        "Cartesian",
-        "Radial",
-        "Spiral",
-        "Hexagonal",
-        "Quasicrystal",
-        "Lissajous",
-        "Moire",
-        "Chevron",
-        "Ring",
-        "Flower",
-        "GridWarp",
-        "Diamond",
-        "Square",
-        "Lattice",
-        "Kaleidoscope",
-        "Voronoi",
-        "Perlin",
-      ])
-      .onFinishChange(() => {
-        rebuildField();
-      }),
-  );
-  controllers.push(
-    sim.add(CONFIG, "waveMix", 0, 1, 0.01).onFinishChange(() => {
-      rebuildField();
+
+  const motionFolder = pane.addFolder({ title: "Motion" });
+  inputs.push(
+    motionFolder.addBinding(CONFIG, "settleStrength", {
+      min: 0.1,
+      max: 4.0,
+      step: 0.01,
+      label: "Settle strength",
     }),
   );
-  controllers.push(
-    sim.add(CONFIG, "rectAspect", 1, 3, 0.01).onFinishChange(() => {
-      rebuildParticles();
+  inputs.push(
+    motionFolder.addBinding(CONFIG, "jitter", {
+      min: 0.0,
+      max: 0.25,
+      step: 0.01,
+      label: "Jitter",
+    }),
+  );
+  inputs.push(
+    motionFolder.addBinding(CONFIG, "drag", {
+      min: 0.7,
+      max: 0.9,
+      step: 0.01,
+      label: "Drag",
+    }),
+  );
+  inputs.push(
+    motionFolder.addBinding(CONFIG, "speedLimit", {
+      min: 0.5,
+      max: 4.0,
+      step: 0.1,
+      label: "Speed limit",
     }),
   );
 
-  const look = gui.addFolder("Look");
-  controllers.push(
-    look.addColor(CONFIG, "color").onChange((value) => {
-      points.material.color.set(value);
-    }),
-  );
-  controllers.push(
-    look.add(CONFIG, "particleSize", 1, 3, 0.1).onChange((value) => {
-      points.material.size = value;
-    }),
+  const wavesFolder = pane.addFolder({ title: "Waves" });
+  const waveAInput = wavesFolder
+    .addBinding(CONFIG, "waveTypeA", {
+      options: waveTypeOptions,
+      label: "Wave type A",
+    })
+    .on("change", () => rebuildField());
+  const waveBInput = wavesFolder
+    .addBinding(CONFIG, "waveTypeB", {
+      options: waveTypeOptions,
+      label: "Wave type B",
+    })
+    .on("change", () => rebuildField());
+  inputs.push(waveAInput, waveBInput);
+  inputs.push(
+    wavesFolder
+      .addBinding(CONFIG, "waveMix", {
+        min: 0,
+        max: 1,
+        step: 0.01,
+        label: "Wave mix",
+      })
+      .on("change", () => rebuildField()),
   );
 
-  const cameraFolder = gui.addFolder("Camera");
-  controllers.push(
-    cameraFolder.add(CONFIG, "cameraZoom", 0.5, 5, 0.1).onChange((value) => {
-      camera.zoom = value;
-      camera.updateProjectionMatrix();
-    }),
-  );
+  const modesFolder = pane.addFolder({ title: "Modes" });
 
-  const modesFolder = gui.addFolder("Modes");
   const modeStyles = {
+    Straight: "Straight",
     Clean: "Clean",
     Balanced: "Balanced",
     Complex: "Complex",
   };
+
   const applyModeStyle = (style) => {
-    if (style === "Clean") {
+    if (style === "Straight") {
+      // Bias toward straight / slightly bent line results
+      CONFIG.modeCount = 1;
+      CONFIG.modeMin = 2;
+      CONFIG.modeMax = 10;
+
+      CONFIG.integerModes = true;
+      CONFIG.randomPhase = false;
+      CONFIG.randomRotation = false;
+      CONFIG.rotationMaxDeg = 0;
+
+      CONFIG.waveTypeA = "Cartesian";
+      CONFIG.waveTypeB = "Chevron";
+      CONFIG.waveMix = 0.0;
+    } else if (style === "Clean") {
       CONFIG.modeCount = 2;
       CONFIG.modeMin = 1;
       CONFIG.modeMax = 8;
@@ -839,112 +791,164 @@ function setupGUI() {
       CONFIG.modeMax = 12;
     }
   };
-  controllers.push(
-    modesFolder.add(CONFIG, "modeStyle", modeStyles).onChange((value) => {
-      applyModeStyle(value);
-      if (modeCountController) modeCountController.updateDisplay();
-      if (modeMinController) modeMinController.updateDisplay();
-      if (modeMaxController) modeMaxController.updateDisplay();
-      randomizeModes();
-    }),
-  );
-  controllers.push(
-    (modeCountController = modesFolder
-      .add(CONFIG, "modeCount", 1, 20, 1)
-      .onChange(() => {
-        randomizeModes();
-      })),
-  );
-  modeMinController = modesFolder
-    .add(CONFIG, "modeMin", 0, 20, 0.1)
-    .onChange(() => {
-      if (CONFIG.modeMin > CONFIG.modeMax) {
-        CONFIG.modeMax = CONFIG.modeMin;
-        if (modeMaxController) {
-          modeMaxController.updateDisplay();
-        }
-      }
-      randomizeModes();
-    });
-  controllers.push(modeMinController);
-  modeMaxController = modesFolder
-    .add(CONFIG, "modeMax", 0, 50, 0.1)
-    .onChange(() => {
-      if (CONFIG.modeMax < CONFIG.modeMin) {
-        CONFIG.modeMin = CONFIG.modeMax;
-        if (modeMinController) {
-          modeMinController.updateDisplay();
-        }
-      }
-      randomizeModes();
-    });
-  controllers.push(modeMaxController);
-  controllers.push(
-    modesFolder.add(CONFIG, "randomPhase").onChange(() => {
-      randomizeModes();
-    }),
-  );
-  controllers.push(
-    modesFolder.add(CONFIG, "randomRotation").onChange(() => {
-      randomizeModes();
-    }),
-  );
-  controllers.push(
+
+  inputs.push(
     modesFolder
-      .add(CONFIG, "rotationMaxDeg", 0, 90, 1)
-      .name("rotationMaxDeg (deg)")
-      .onChange(() => {
+      .addBinding(CONFIG, "modeStyle", {
+        options: modeStyles,
+        label: "Mode style",
+      })
+      .on("change", (ev) => {
+        if (suppressUIEvents) return;
+        applyModeStyle(ev.value);
+        rebuildField();
+        randomizeModes();
+        if (refreshUI) refreshUI();
+      }),
+  );
+
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "modeCount", {
+        min: 1,
+        max: 20,
+        step: 1,
+        label: "Mode count",
+      })
+      .on("change", () => {
+        if (suppressUIEvents) return;
         randomizeModes();
       }),
   );
-  controllers.push(
+  inputs.push(
     modesFolder
-      .add(CONFIG, "modeScaleJitter", 0, 0.5, 0.01)
-      .name("modeScaleJitter (scale)")
-      .onChange(() => {
+      .addBinding(CONFIG, "modeMin", {
+        min: 0,
+        max: 20,
+        step: 0.1,
+        label: "Minimum mode",
+      })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        if (CONFIG.modeMin > CONFIG.modeMax) CONFIG.modeMax = CONFIG.modeMin;
+        randomizeModes();
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "modeMax", {
+        min: 0,
+        max: 50,
+        step: 0.1,
+        label: "Maximum mode",
+      })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        if (CONFIG.modeMax < CONFIG.modeMin) CONFIG.modeMin = CONFIG.modeMax;
         randomizeModes();
       }),
   );
 
-  const captureFolder = gui.addFolder("Capture");
-  captureFolder.add({ saveImage }, "saveImage");
-  captureFolder.add(CONFIG, "captureScale", 1, 6, 1).name("captureScale (x)");
-  captureFolder
-    .add(CONFIG, "exportBaseSize", 512, 8192, 128)
-    .name("exportBaseSize (px)");
-  captureFolder.add({ saveImageHQ }, "saveImageHQ");
-  captureFolder.add(CONFIG, "recordFps", 15, 60, 1).name("recordFps");
-  captureFolder
-    .add(CONFIG, "recordWidth", 320, 3840, 10)
-    .name("recordWidth (px)");
-  captureFolder
-    .add(CONFIG, "recordHeight", 240, 2160, 10)
-    .name("recordHeight (px)");
-  captureFolder.add({ startRecording }, "startRecording");
-  captureFolder.add({ stopRecording }, "stopRecording");
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "integerModes", { label: "Integer modes" })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        initModes();
+        rebuildField();
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "randomPhase", { label: "Random phase" })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        randomizeModes();
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "randomRotation", { label: "Random rotation" })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        randomizeModes();
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "rotationMaxDeg", {
+        min: 0,
+        max: 90,
+        step: 1,
+        label: "Rotation max (deg)",
+      })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        randomizeModes();
+      }),
+  );
 
-  const actionsFolder = gui.addFolder("Actions");
-  actionsFolder.add({ randomizeAll }, "randomizeAll");
+  const captureFolder = pane.addFolder({ title: "Capture" });
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "exportBaseSize", {
+      min: 512,
+      max: 8192,
+      step: 128,
+      label: "Export size (px)",
+    }),
+  );
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "exportOpaque", {
+      label: "Transparent",
+    }),
+  );
+  inputs.push(
+    captureFolder
+      .addBinding(CONFIG, "rectAspect", {
+        min: 1,
+        max: 3,
+        step: 0.01,
+        label: "Aspect ratio",
+      })
+      .on("change", () => rebuildParticles()),
+  );
+  inputs.push(
+    captureFolder
+      .addBinding(CONFIG, "cameraZoom", {
+        min: 0.5,
+        max: 5,
+        step: 0.1,
+        label: "Camera zoom",
+      })
+      .on("change", (ev) => {
+        applyCameraZoom(ev.value);
+      }),
+  );
+  captureFolder
+    .addButton({ title: "Save image" })
+    .on("click", () => saveImage());
 
-  function syncGUI() {
-    controllers.forEach((controller) => controller.updateDisplay());
+  if (typeof captureFolder.addSeparator === "function") {
+    captureFolder.addSeparator();
+  } else if (typeof captureFolder.addBlade === "function") {
+    captureFolder.addBlade({ view: "separator" });
   }
+  captureFolder
+    .addButton({ title: "Randomize all" })
+    .on("click", () => randomizeAll());
+  captureFolder
+    .addButton({ title: "Randomize modes" })
+    .on("click", () => randomizeModes());
 
-  randomizeAll.syncGUI = syncGUI;
+  refreshUI = () => {
+    inputs.forEach((input) => input.refresh());
+  };
 
-  sim.open();
-  look.open();
+  particlesFolder.expanded = true;
+  captureFolder.expanded = true;
 }
 
 function saveImage() {
-  const link = document.createElement("a");
-  link.download = `chladni-${Date.now()}.png`;
-  link.href = renderer.domElement.toDataURL("image/png");
-  link.click();
-}
-
-function saveImageHQ() {
-  const scale = Math.max(1, Math.round(CONFIG.captureScale));
   const oldSize = new THREE.Vector2();
   renderer.getSize(oldSize);
   const oldPixelRatio = renderer.getPixelRatio();
@@ -954,31 +958,20 @@ function saveImageHQ() {
 
   const baseSize = Math.max(256, Math.round(CONFIG.exportBaseSize));
 
-  const range = CONFIG.viewScale;
-  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
-  const ovalRy = Math.max(1, Math.round(range * 0.65));
-  const exportWorldWidth = range * 2;
-  const exportWorldHeight =
-    CONFIG.shape === "Circle"
-      ? range * 2
-      : CONFIG.shape === "Oval"
-        ? ovalRy * 2
-        : rectRy * 2;
-
-  const aspect = exportWorldWidth / exportWorldHeight;
-  const exportWidth = Math.max(1, Math.round(baseSize * scale));
+  const aspect = oldSize.x / oldSize.y;
+  const exportWidth = Math.max(1, Math.round(baseSize));
   const exportHeight = Math.max(1, Math.round(exportWidth / aspect));
 
   renderer.setPixelRatio(1);
   renderer.setSize(exportWidth, exportHeight, false);
-  renderer.setClearColor(oldClearColor, 0);
+  const exportAlpha = CONFIG.exportOpaque ? 0 : 1;
+  renderer.setClearColor(oldClearColor, exportAlpha);
 
-  const frustumWidth = exportWorldWidth;
-  const frustumHeight = exportWorldHeight;
-  camera.left = -frustumWidth / 2;
-  camera.right = frustumWidth / 2;
-  camera.top = frustumHeight / 2;
-  camera.bottom = -frustumHeight / 2;
+  const frustumSize = CONFIG.viewScale * 2;
+  camera.left = (-frustumSize * aspect) / 2;
+  camera.right = (frustumSize * aspect) / 2;
+  camera.top = frustumSize / 2;
+  camera.bottom = -frustumSize / 2;
   camera.updateProjectionMatrix();
 
   const sizeScale = exportWidth / oldSize.x;
@@ -998,50 +991,8 @@ function saveImageHQ() {
   onWindowResize();
 }
 
-function startRecording() {
-  if (isRecording) return;
-  const width = Math.max(1, Math.round(CONFIG.recordWidth));
-  const height = Math.max(1, Math.round(CONFIG.recordHeight));
-  recordCanvas = document.createElement("canvas");
-  recordCanvas.width = width;
-  recordCanvas.height = height;
-  recordCtx = recordCanvas.getContext("2d");
-
-  const stream = recordCanvas.captureStream(CONFIG.recordFps);
-  const mimeType = MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
-    ? "video/webm;codecs=vp9"
-    : "video/webm";
-  recorder = new MediaRecorder(stream, { mimeType });
-  recordingChunks = [];
-  recorder.ondataavailable = (event) => {
-    if (event.data && event.data.size > 0) {
-      recordingChunks.push(event.data);
-    }
-  };
-  recorder.onstop = () => {
-    const blob = new Blob(recordingChunks, { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.download = `chladni-${Date.now()}.webm`;
-    link.href = url;
-    link.click();
-    URL.revokeObjectURL(url);
-    recordingChunks = [];
-    recorder = null;
-    recordCanvas = null;
-    recordCtx = null;
-  };
-  recorder.start();
-  isRecording = true;
-}
-
-function stopRecording() {
-  if (!recorder || !isRecording) return;
-  recorder.stop();
-  isRecording = false;
-}
-
 function randomizeAll() {
+  const modeStyles = ["Straight", "Clean", "Balanced", "Complex"];
   const waveTypes = [
     "Cartesian",
     "Radial",
@@ -1062,42 +1013,61 @@ function randomizeAll() {
     "Perlin",
   ];
 
-  CONFIG.particleCount = Math.floor(10000 + Math.random() * 490000);
-  CONFIG.gridSize = 512;
+  const deviceMemory = navigator.deviceMemory || 8;
+  const cores = navigator.hardwareConcurrency || 8;
+  const perfScale = Math.min(
+    1,
+    Math.max(0.5, (deviceMemory / 8) * (cores / 8)),
+  );
+  const minParticles = 100000;
+  const maxParticles = Math.max(minParticles, Math.round(400000 * perfScale));
+  const particleStep = 20000;
+  const minGrid = 64;
+  const maxGrid = Math.max(minGrid, Math.round(192 * perfScale));
+  const maxModes = Math.max(4, Math.round(10 * perfScale));
+
+  const particleOptions = [];
+  for (let v = minParticles; v <= maxParticles; v += particleStep) {
+    particleOptions.push(v);
+  }
+  CONFIG.particleCount =
+    particleOptions[Math.floor(Math.random() * particleOptions.length)];
+  CONFIG.gridSize = Math.floor(minGrid + Math.random() * (maxGrid - minGrid));
   CONFIG.settleStrength = 0.1 + Math.random() * 3.9;
   CONFIG.jitter = Math.random() * 0.25;
   CONFIG.drag = 0.7 + Math.random() * 0.2;
   CONFIG.speedLimit = 0.5 + Math.random() * 9.5;
   CONFIG.viewScale = 300 + Math.random() * 500;
+
   CONFIG.waveTypeA = waveTypes[Math.floor(Math.random() * waveTypes.length)];
   CONFIG.waveTypeB = waveTypes[Math.floor(Math.random() * waveTypes.length)];
+  CONFIG.waveMix = Math.random();
+
   CONFIG.color = `#${Math.floor(Math.random() * 0xffffff)
     .toString(16)
     .padStart(6, "0")}`;
   CONFIG.particleSize = 1 + Math.random() * 2;
-  CONFIG.particleOpacity = 0.2 + Math.random() * 0.8;
-  CONFIG.cameraZoom = 0.5 + Math.random() * 4.5;
-  CONFIG.modeCount = Math.floor(1 + Math.random() * 20);
+
+  CONFIG.modeStyle = modeStyles[Math.floor(Math.random() * modeStyles.length)];
+  CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
   CONFIG.modeMin = Math.random() * 20;
   CONFIG.modeMax = CONFIG.modeMin + Math.random() * (50 - CONFIG.modeMin);
+
+  CONFIG.integerModes = Math.random() < 0.7;
   CONFIG.randomPhase = Math.random() < 0.5;
   CONFIG.randomRotation = Math.random() < 0.5;
   CONFIG.rotationMaxDeg = Math.floor(Math.random() * 91);
-  CONFIG.modeScaleJitter = Math.random() * 0.5;
-  CONFIG.waveMix = Math.random();
 
   rebuildParticles();
   allocateField();
+  initModes();
   rebuildField();
-  randomizeModes();
 
   points.material.color.set(CONFIG.color);
   points.material.size = CONFIG.particleSize;
 
-  camera.zoom = CONFIG.cameraZoom;
-  camera.updateProjectionMatrix();
+  applyCameraZoom(CONFIG.cameraZoom);
+  onWindowResize();
 
-  if (randomizeAll.syncGUI) {
-    randomizeAll.syncGUI();
-  }
+  if (refreshUI) refreshUI();
 }

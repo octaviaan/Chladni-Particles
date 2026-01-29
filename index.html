@@ -1,57 +1,22 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Three.js Chladni Plate</title>
-    <style>
-        body { 
-            margin: 0; 
-            overflow: hidden; 
-            background-color: #0b0b0b; 
-        }
-        canvas { 
-            display: block; 
-        }
-        #ui {
-            position: absolute; 
-            top: 20px; 
-            left: 20px; 
-            color: #eeeeee;
-            font-family: 'Courier New', Courier, monospace; 
-            background: rgba(0, 0, 0, 0.7); 
-            padding: 15px;
-            border-radius: 4px;
-            pointer-events: none; 
-            user-select: none;
-            backdrop-filter: blur(4px);
-            border: 1px solid rgba(255,255,255,0.1);
-        }
-        h1 {
-            font-size: 16px;
-            margin: 0 0 8px 0;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-        p {
-            font-size: 12px;
-            margin: 0;
-            opacity: 0.7;
-            line-height: 1.5;
-        }
-    </style>
-</head>
-<body>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-                "lil-gui": "https://unpkg.com/lil-gui@0.19.2/dist/lil-gui.esm.js"
-            }
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+          "tweakpane": "https://cdn.jsdelivr.net/npm/tweakpane@4.0.5/dist/tweakpane.min.js"
         }
+      }
     </script>
 
     <script type="module" src="./script.js"></script>
-</body>
+  </body>
 </html>
