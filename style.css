@@ -56,3 +56,8 @@ canvas {
 .tp-numb_i {
   color: #b3db8e !important;
 }
+
+.tp-fpsv svg polyline {
+  stroke: #b3db8e !important;
+  fill: none !important;
+}
