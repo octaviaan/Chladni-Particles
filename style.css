@@ -22,3 +22,37 @@ canvas {
   gap: 8px;
   width: 100%;
 }
+
+.tp-sldv_k::before {
+  background-color: #b3db8e !important;
+}
+
+.tp-rslv_b::before {
+  background-color: #b3db8e !important;
+}
+
+.tp-ckbv_i:checked + .tp-ckbv_w svg {
+  color: #b3db8e !important;
+  fill: none !important;
+  stroke: #b3db8e !important;
+}
+
+.tp-ckbv_i:checked + .tp-ckbv_w .tp-ckbv_c {
+  border-color: #b3db8e !important;
+  background-color: #b3db8e !important;
+}
+
+.tp-ckbv_i:checked + .tp-ckbv_w svg * {
+  fill: none !important;
+  stroke: #b3db8e !important;
+}
+
+.tp-ckbv_i:checked + .tp-ckbv_w .tp-ckbv_c svg path {
+  fill: none !important;
+  stroke: #b3db8e !important;
+}
+
+.tp-txtv_i,
+.tp-numb_i {
+  color: #b3db8e !important;
+}

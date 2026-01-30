@@ -1,29 +1,28 @@
 import * as THREE from "three";
 import { Pane } from "tweakpane";
+import * as EssentialsPlugin from "tweakpane-plugin-essentials";
 
 // --- Configuration ---
 const CONFIG = {
   particleCount: 400000,
-  gridSize: 512, // Resolution of the underlying energy field
+  gridSize: 256, // Resolution of the underlying energy field
   settleStrength: 1.5, // How fast particles move to nodal lines
   jitter: 0.1, // Brownian motion to keep them "alive"
   drag: 0.85, // Friction
   speedLimit: 2.0,
   viewScale: 600, // Size of the world
-  color: "#9fd3ff",
+  color: "#72dcff",
   particleSize: 2,
   particleOpacity: 1.0,
-  cameraZoom: 2.1,
+  cameraControl: { x: 0, y: 0, z: 1.9 },
   exportBaseSize: 2048,
   exportOpaque: false,
 
   modeCount: 4,
-  mMin: 2,
-  mMax: 12,
-  nMin: 2,
-  nMax: 12,
+  mRange: { min: 2, max: 12 },
+  nRange: { min: 2, max: 12 },
 
-  rectAspect: 2.1,
+  rectAspect: 1.9,
 
   waveTypeA: "Cartesian",
   waveTypeB: "Radial",
@@ -47,6 +46,7 @@ let scene, camera, renderer, geometry, points;
 let positions, velocities; // Float32Arrays for high performance
 let refreshUI = null;
 let suppressUIEvents = false;
+let fpsGraph = null;
 
 // Field Data (Pre-computed grid)
 let fieldSize = 0;
@@ -78,8 +78,7 @@ function init() {
     3000,
   );
   camera.position.set(0, 0, 500); // True top-down view
-  applyCameraZoom(CONFIG.cameraZoom);
-  camera.lookAt(0, 0, 0);
+  applyCameraFromControl(CONFIG.cameraControl);
 
   // 2. Renderer
   renderer = new THREE.WebGLRenderer({
@@ -458,7 +457,7 @@ function rebuildField() {
         const mode = modes[k];
         const waveA = waveValue(typeA, cx, cy, idx, mode);
         const waveB = waveValue(typeB, cx, cy, idx, mode);
-        const wave = waveA * (1 - mix) + waveB * mix;
+        const wave = Math.tanh(waveA * (1 - mix) + waveB * mix);
         phi += mode.a * wave;
       }
       let e = phi * phi;
@@ -627,10 +626,12 @@ function randomizeModes() {
   );
   const maxModes = Math.max(4, Math.round(10 * perfScale));
   CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
-  CONFIG.mMin = Math.random() * 20;
-  CONFIG.mMax = CONFIG.mMin + Math.random() * (40 - CONFIG.mMin);
-  CONFIG.nMin = Math.random() * 20;
-  CONFIG.nMax = CONFIG.nMin + Math.random() * (40 - CONFIG.nMin);
+  CONFIG.mRange.min = Math.random() * 20;
+  CONFIG.mRange.max =
+    CONFIG.mRange.min + Math.random() * (40 - CONFIG.mRange.min);
+  CONFIG.nRange.min = Math.random() * 20;
+  CONFIG.nRange.max =
+    CONFIG.nRange.min + Math.random() * (40 - CONFIG.nRange.min);
 
   CONFIG.integerModes = Math.random() < 0.5;
   CONFIG.randomPhase = Math.random() < 0.5;
@@ -644,12 +645,17 @@ function randomizeModes() {
         ? ((Math.random() * 2 - 1) * CONFIG.rotationMaxDeg * Math.PI) / 180
         : 0;
 
-    const mRaw = modeValueAt(i, CONFIG.modeCount, CONFIG.mMin, CONFIG.mMax);
+    const mRaw = modeValueAt(
+      i,
+      CONFIG.modeCount,
+      CONFIG.mRange.min,
+      CONFIG.mRange.max,
+    );
     const nRaw = modeValueAt(
       i,
       CONFIG.modeCount,
-      CONFIG.nMin,
-      CONFIG.nMax,
+      CONFIG.nRange.min,
+      CONFIG.nRange.max,
       true,
     );
 
@@ -685,12 +691,17 @@ function initModes() {
         ? ((Math.random() * 2 - 1) * CONFIG.rotationMaxDeg * Math.PI) / 180
         : 0;
 
-    const mRaw = modeValueAt(i, CONFIG.modeCount, CONFIG.mMin, CONFIG.mMax);
+    const mRaw = modeValueAt(
+      i,
+      CONFIG.modeCount,
+      CONFIG.mRange.min,
+      CONFIG.mRange.max,
+    );
     const nRaw = modeValueAt(
       i,
       CONFIG.modeCount,
-      CONFIG.nMin,
-      CONFIG.nMax,
+      CONFIG.nRange.min,
+      CONFIG.nRange.max,
       true,
     );
 
@@ -725,8 +736,10 @@ function normalizeModeAmplitudes() {
 
 function animate() {
   requestAnimationFrame(animate);
+  if (fpsGraph) fpsGraph.begin();
   updateParticles();
   renderer.render(scene, camera);
+  if (fpsGraph) fpsGraph.end();
 }
 
 function applyCameraZoom(value) {
@@ -734,10 +747,29 @@ function applyCameraZoom(value) {
   camera.updateProjectionMatrix();
 }
 
+function applyCameraPan(x, y) {
+  camera.position.x = x;
+  camera.position.y = y;
+  camera.lookAt(x, y, 0);
+  camera.updateProjectionMatrix();
+}
+
+function applyCameraFromControl(control) {
+  applyCameraZoom(control.z);
+  applyCameraPan(control.x, control.y);
+}
+
 function setupGUI() {
   const pane = new Pane({ title: "Controls" });
   pane.element.classList.add("tp-minimal");
+  pane.registerPlugin(EssentialsPlugin);
   const inputs = [];
+
+  fpsGraph = pane.addBlade({
+    view: "fpsgraph",
+    label: "FPS",
+    rows: 2,
+  });
 
   const waveTypeOptions = {
     Cartesian: "Cartesian",
@@ -773,9 +805,9 @@ function setupGUI() {
   inputs.push(
     particlesFolder
       .addBinding(CONFIG, "particleCount", {
-        min: 100000,
-        max: 800000,
-        step: 20000,
+        min: 13370,
+        max: 1337000,
+        step: 10000,
         label: "Count",
       })
       .on("change", () => rebuildParticles()),
@@ -784,7 +816,7 @@ function setupGUI() {
     particlesFolder
       .addBinding(CONFIG, "particleSize", {
         min: 1,
-        max: 3,
+        max: 5,
         step: 0.5,
         label: "Size",
       })
@@ -797,6 +829,44 @@ function setupGUI() {
       .addBinding(CONFIG, "color", { label: "Color" })
       .on("change", (ev) => {
         points.material.color.set(ev.value);
+      }),
+  );
+  inputs.push(
+    particlesFolder
+      .addBinding(CONFIG, "viewScale", {
+        options: {
+          200: 200,
+          300: 300,
+          400: 400,
+          500: 500,
+          600: 600,
+          700: 700,
+          800: 800,
+        },
+        label: "View scale",
+      })
+      .on("change", () => {
+        onWindowResize();
+        rebuildParticles();
+        allocateField();
+        rebuildField();
+      }),
+  );
+  inputs.push(
+    particlesFolder
+      .addBinding(CONFIG, "gridSize", {
+        options: {
+          64: 64,
+          128: 128,
+          256: 256,
+          384: 384,
+          512: 512,
+        },
+        label: "Grid size",
+      })
+      .on("change", () => {
+        allocateField();
+        rebuildField();
       }),
   );
 
@@ -876,57 +946,27 @@ function setupGUI() {
   );
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "mMin", {
-        min: 0,
-        max: 20,
-        step: 0.1,
-        label: "m min",
-      })
-      .on("change", () => {
-        if (suppressUIEvents) return;
-        if (CONFIG.mMin > CONFIG.mMax) CONFIG.mMax = CONFIG.mMin;
-        rebuildModesFromConfig();
-      }),
-  );
-  inputs.push(
-    modesFolder
-      .addBinding(CONFIG, "mMax", {
+      .addBinding(CONFIG, "mRange", {
         min: 0,
         max: 40,
         step: 0.1,
-        label: "m max",
+        label: "m range",
       })
       .on("change", () => {
         if (suppressUIEvents) return;
-        if (CONFIG.mMax < CONFIG.mMin) CONFIG.mMin = CONFIG.mMax;
         rebuildModesFromConfig();
       }),
   );
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "nMin", {
-        min: 0,
-        max: 20,
-        step: 0.1,
-        label: "n min",
-      })
-      .on("change", () => {
-        if (suppressUIEvents) return;
-        if (CONFIG.nMin > CONFIG.nMax) CONFIG.nMax = CONFIG.nMin;
-        rebuildModesFromConfig();
-      }),
-  );
-  inputs.push(
-    modesFolder
-      .addBinding(CONFIG, "nMax", {
+      .addBinding(CONFIG, "nRange", {
         min: 0,
         max: 40,
         step: 0.1,
-        label: "n max",
+        label: "n range",
       })
       .on("change", () => {
         if (suppressUIEvents) return;
-        if (CONFIG.nMax < CONFIG.nMin) CONFIG.nMin = CONFIG.nMax;
         rebuildModesFromConfig();
       }),
   );
@@ -972,9 +1012,9 @@ function setupGUI() {
   const captureFolder = pane.addFolder({ title: "Capture" });
   inputs.push(
     captureFolder.addBinding(CONFIG, "exportBaseSize", {
-      min: 512,
+      min: 1024,
       max: 8192,
-      step: 128,
+      step: 256,
       label: "Export size (px)",
     }),
   );
@@ -985,24 +1025,14 @@ function setupGUI() {
   );
   inputs.push(
     captureFolder
-      .addBinding(CONFIG, "rectAspect", {
-        min: 1,
-        max: 3,
-        step: 0.01,
-        label: "Aspect ratio",
-      })
-      .on("change", () => rebuildParticles()),
-  );
-  inputs.push(
-    captureFolder
-      .addBinding(CONFIG, "cameraZoom", {
-        min: 0.5,
-        max: 10,
-        step: 0.1,
-        label: "Zoom",
+      .addBinding(CONFIG, "cameraControl", {
+        label: "Pan/Zoom",
+        x: { min: -CONFIG.viewScale, max: CONFIG.viewScale, step: 1 },
+        y: { min: -CONFIG.viewScale, max: CONFIG.viewScale, step: 1 },
+        z: { min: 0.5, max: 10, step: 0.1 },
       })
       .on("change", (ev) => {
-        applyCameraZoom(ev.value);
+        applyCameraFromControl(ev.value);
       }),
   );
   captureFolder
@@ -1122,27 +1152,24 @@ function randomizeAll() {
   }
   CONFIG.particleCount =
     particleOptions[Math.floor(Math.random() * particleOptions.length)];
-  CONFIG.gridSize = Math.floor(minGrid + Math.random() * (maxGrid - minGrid));
   CONFIG.settleStrength = 0.1 + Math.random() * 3.9;
   CONFIG.jitter = Math.random() * 0.25;
   CONFIG.drag = 0.7 + Math.random() * 0.2;
   CONFIG.speedLimit = 0.5 + Math.random() * 9.5;
-  CONFIG.viewScale = 300 + Math.random() * 500;
 
   CONFIG.waveTypeA = waveTypes[Math.floor(Math.random() * waveTypes.length)];
   CONFIG.waveTypeB = waveTypes[Math.floor(Math.random() * waveTypes.length)];
   CONFIG.waveMix = Math.random();
 
-  CONFIG.color = `#${Math.floor(Math.random() * 0xffffff)
-    .toString(16)
-    .padStart(6, "0")}`;
   CONFIG.particleSize = 1 + Math.random() * 2;
 
   CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
-  CONFIG.mMin = Math.random() * 20;
-  CONFIG.mMax = CONFIG.mMin + Math.random() * (50 - CONFIG.mMin);
-  CONFIG.nMin = Math.random() * 20;
-  CONFIG.nMax = CONFIG.nMin + Math.random() * (50 - CONFIG.nMin);
+  CONFIG.mRange.min = Math.random() * 20;
+  CONFIG.mRange.max =
+    CONFIG.mRange.min + Math.random() * (40 - CONFIG.mRange.min);
+  CONFIG.nRange.min = Math.random() * 20;
+  CONFIG.nRange.max =
+    CONFIG.nRange.min + Math.random() * (40 - CONFIG.nRange.min);
 
   CONFIG.integerModes = Math.random() < 0.7;
   CONFIG.randomPhase = Math.random() < 0.5;
@@ -1157,7 +1184,7 @@ function randomizeAll() {
   points.material.color.set(CONFIG.color);
   points.material.size = CONFIG.particleSize;
 
-  applyCameraZoom(CONFIG.cameraZoom);
+  applyCameraFromControl(CONFIG.cameraControl);
   onWindowResize();
 
   if (refreshUI) refreshUI();
