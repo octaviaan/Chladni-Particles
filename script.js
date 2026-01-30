@@ -4,22 +4,24 @@ import { Pane } from "tweakpane";
 // --- Configuration ---
 const CONFIG = {
   particleCount: 400000,
-  gridSize: 256, // Resolution of the underlying energy field
+  gridSize: 512, // Resolution of the underlying energy field
   settleStrength: 1.5, // How fast particles move to nodal lines
-  jitter: 0.2, // Brownian motion to keep them "alive"
+  jitter: 0.1, // Brownian motion to keep them "alive"
   drag: 0.85, // Friction
   speedLimit: 2.0,
   viewScale: 600, // Size of the world
   color: "#9fd3ff",
-  particleSize: 2.5,
+  particleSize: 2,
   particleOpacity: 1.0,
   cameraZoom: 2.1,
   exportBaseSize: 2048,
   exportOpaque: false,
 
   modeCount: 4,
-  modeMin: 2,
-  modeMax: 12,
+  mMin: 2,
+  mMax: 12,
+  nMin: 2,
+  nMax: 12,
 
   rectAspect: 2.1,
 
@@ -32,12 +34,12 @@ const CONFIG = {
   randomPhase: true,
   randomRotation: true,
   rotationMaxDeg: 30,
-  modeStyle: "Balanced",
 
   // Wave types:
   // "Cartesian", "Radial", "Spiral", "Hexagonal", "Quasicrystal", "Lissajous",
   // "Moire", "Chevron", "Ring", "Flower", "GridWarp", "Diamond", "Square",
-  // "Lattice", "Kaleidoscope", "Voronoi", "Perlin"
+  // "Lattice", "Kaleidoscope", "Voronoi", "Perlin", "Superellipse", "Bessel",
+  // "TriLattice", "Rose", "Astroid", "Checker"
 };
 
 // --- Global Variables ---
@@ -217,6 +219,18 @@ function rebuildField() {
       const mInt = Math.round(mode.m);
       return Math.sin(mode.n * Math.PI * r + mInt * theta + mode.px);
     }
+    if (type === "HyperSpiral") {
+      const r = Math.sqrt(cx * cx + cy * cy);
+      const theta = Math.atan2(cy, cx);
+      return Math.sin(
+        mode.n * Math.log(r + 0.001) * 5 + mode.m * theta + mode.px,
+      );
+    }
+    if (type === "Parabolic") {
+      const u = cx * cx - cy * cy;
+      const v = 2 * cx * cy;
+      return Math.sin(mode.m * Math.PI * u) * Math.sin(mode.n * Math.PI * v);
+    }
     if (type === "Hexagonal") {
       const cosR = mode.cos;
       const sinR = mode.sin;
@@ -245,6 +259,13 @@ function rebuildField() {
         sum += Math.cos(kFreq * v + mode.px);
       }
       return sum;
+    }
+    if (type === "Gyroid") {
+      const scale = mode.m * 10;
+      return (
+        Math.sin(cx * scale) * Math.cos(cy * scale) +
+        Math.sin(cy * scale) * Math.cos(mode.px)
+      );
     }
     if (type === "Lissajous") {
       const cosR = mode.cos;
@@ -290,6 +311,13 @@ function rebuildField() {
       const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
       return Math.sin(mode.m * Math.PI * r + mode.px);
     }
+    if (type === "Cassini") {
+      const a = mode.m * 0.1;
+      const d1 = (cx - a) * (cx - a) + cy * cy;
+      const d2 = (cx + a) * (cx + a) + cy * cy;
+      const val = Math.sqrt(d1 * d2);
+      return Math.sin(val * 20 - mode.n * 5);
+    }
     if (type === "Flower") {
       const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
       const theta = Math.atan2(cy, cx);
@@ -298,6 +326,11 @@ function rebuildField() {
         Math.sin(mode.m * Math.PI * r + mode.px) *
         Math.cos(nInt * theta + mode.py)
       );
+    }
+    if (type === "Interference") {
+      const d1 = Math.sqrt((cx + 0.3) ** 2 + cy ** 2);
+      const d2 = Math.sqrt((cx - 0.3) ** 2 + cy ** 2);
+      return Math.sin(mode.m * 20 * d1) + Math.sin(mode.m * 20 * d2 + mode.px);
     }
     if (type === "GridWarp") {
       const cosR = mode.cos;
@@ -362,7 +395,63 @@ function rebuildField() {
       const n = valueNoise(rx * scale + mode.px, ry * scale + mode.py);
       return n;
     }
-
+    if (type === "Superellipse") {
+      const p = 0.8 + (Math.abs(mode.m) % 4) * 0.4;
+      const rx = Math.abs(cx) * 2.0;
+      const ry = Math.abs(cy) * 2.0;
+      const r = Math.pow(Math.pow(rx, p) + Math.pow(ry, p), 1 / p) * 0.5;
+      return Math.sin(mode.n * Math.PI * r + mode.px);
+    }
+    if (type === "BoxWaves") {
+      const dist = Math.max(Math.abs(cx), Math.abs(cy));
+      return Math.sin(mode.m * 20 * dist + mode.px);
+    }
+    if (type === "Bessel") {
+      const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+      const theta = Math.atan2(cy, cx);
+      const nInt = Math.max(0, Math.round(mode.n));
+      const x = Math.max(1e-4, mode.m * Math.PI * r + 1e-4);
+      const j = Math.sin(x - (nInt * Math.PI) / 2) / Math.sqrt(x);
+      return j * Math.cos(nInt * theta + mode.py);
+    }
+    if (type === "TriLattice") {
+      const cosR = mode.cos;
+      const sinR = mode.sin;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
+      const k = mode.m * Math.PI;
+      const a0 = k * rx + mode.px;
+      const a1 = k * (rx * -0.5 + ry * 0.866) + mode.py;
+      const a2 = k * (rx * -0.5 - ry * 0.866);
+      return Math.sin(a0) + Math.sin(a1) + Math.sin(a2);
+    }
+    if (type === "Rose") {
+      const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+      const theta = Math.atan2(cy, cx);
+      const nInt = Math.max(1, Math.round(mode.n));
+      return (
+        Math.sin(mode.m * Math.PI * r + mode.px) *
+        Math.cos(nInt * theta + mode.py)
+      );
+    }
+    if (type === "Astroid") {
+      const rx = Math.abs(cx) * 2.0;
+      const ry = Math.abs(cy) * 2.0;
+      const r = Math.pow(Math.pow(rx, 2 / 3) + Math.pow(ry, 2 / 3), 3 / 2);
+      return Math.sin(mode.m * Math.PI * r + mode.px);
+    }
+    if (type === "Checker") {
+      const cosR = mode.cos;
+      const sinR = mode.sin;
+      const rx = cx * cosR - cy * sinR;
+      const ry = cx * sinR + cy * cosR;
+      const a = mode.m * Math.PI;
+      const b = mode.n * Math.PI;
+      return (
+        Math.sin(a * rx + mode.px) * Math.sin(b * ry + mode.py) +
+        Math.sin(b * rx + mode.px) * Math.sin(a * ry + mode.py)
+      );
+    }
     // Cartesian (default)
     return baseCartesian(cx, cy, mode);
   };
@@ -535,8 +624,14 @@ function quantizeModeValue(v) {
   return Math.max(1, Math.round(v));
 }
 
+function modeValueAt(index, count, min, max, flip = false) {
+  if (count <= 1) return (min + max) * 0.5;
+  const t = index / (count - 1);
+  const u = flip ? 1 - t : t;
+  return min + (max - min) * u;
+}
+
 function randomizeModes() {
-  const modeStyles = ["Straight", "Clean", "Balanced", "Complex"];
   const deviceMemory = navigator.deviceMemory || 8;
   const cores = navigator.hardwareConcurrency || 8;
   const perfScale = Math.min(
@@ -544,10 +639,11 @@ function randomizeModes() {
     Math.max(0.5, (deviceMemory / 8) * (cores / 8)),
   );
   const maxModes = Math.max(4, Math.round(10 * perfScale));
-  CONFIG.modeStyle = modeStyles[Math.floor(Math.random() * modeStyles.length)];
   CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
-  CONFIG.modeMin = Math.random() * 20;
-  CONFIG.modeMax = CONFIG.modeMin + Math.random() * (50 - CONFIG.modeMin);
+  CONFIG.mMin = Math.random() * 20;
+  CONFIG.mMax = CONFIG.mMin + Math.random() * (40 - CONFIG.mMin);
+  CONFIG.nMin = Math.random() * 20;
+  CONFIG.nMax = CONFIG.nMin + Math.random() * (40 - CONFIG.nMin);
 
   CONFIG.integerModes = Math.random() < 0.5;
   CONFIG.randomPhase = Math.random() < 0.5;
@@ -561,10 +657,14 @@ function randomizeModes() {
         ? ((Math.random() * 2 - 1) * CONFIG.rotationMaxDeg * Math.PI) / 180
         : 0;
 
-    const mRaw =
-      Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
-    const nRaw =
-      Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
+    const mRaw = modeValueAt(i, CONFIG.modeCount, CONFIG.mMin, CONFIG.mMax);
+    const nRaw = modeValueAt(
+      i,
+      CONFIG.modeCount,
+      CONFIG.nMin,
+      CONFIG.nMax,
+      true,
+    );
 
     const m = quantizeModeValue(mRaw);
     const n = quantizeModeValue(nRaw);
@@ -572,7 +672,7 @@ function randomizeModes() {
     modes.push({
       m,
       n,
-      a: Math.random() * (1 - i * 0.2),
+      a: 1 - i * 0.2,
       px: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       py: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       cos: Math.cos(rot),
@@ -598,10 +698,14 @@ function initModes() {
         ? ((Math.random() * 2 - 1) * CONFIG.rotationMaxDeg * Math.PI) / 180
         : 0;
 
-    const mRaw =
-      Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
-    const nRaw =
-      Math.random() ** 0.6 * (CONFIG.modeMax - CONFIG.modeMin) + CONFIG.modeMin;
+    const mRaw = modeValueAt(i, CONFIG.modeCount, CONFIG.mMin, CONFIG.mMax);
+    const nRaw = modeValueAt(
+      i,
+      CONFIG.modeCount,
+      CONFIG.nMin,
+      CONFIG.nMax,
+      true,
+    );
 
     const m = quantizeModeValue(mRaw);
     const n = quantizeModeValue(nRaw);
@@ -609,7 +713,7 @@ function initModes() {
     modes.push({
       m,
       n,
-      a: Math.random() * (1 - i * 0.2),
+      a: 1 - i * 0.2,
       px: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       py: CONFIG.randomPhase ? Math.random() * Math.PI * 2 : 0,
       cos: Math.cos(rot),
@@ -617,6 +721,11 @@ function initModes() {
     });
   }
   normalizeModeAmplitudes();
+}
+
+function rebuildModesFromConfig() {
+  initModes();
+  rebuildField();
 }
 
 function normalizeModeAmplitudes() {
@@ -647,13 +756,18 @@ function setupGUI() {
     Cartesian: "Cartesian",
     Radial: "Radial",
     Spiral: "Spiral",
+    HyperSpiral: "HyperSpiral",
+    Parabolic: "Parabolic",
     Hexagonal: "Hexagonal",
     Quasicrystal: "Quasicrystal",
+    Gyroid: "Gyroid",
     Lissajous: "Lissajous",
     Moire: "Moire",
     Chevron: "Chevron",
     Ring: "Ring",
+    Cassini: "Cassini",
     Flower: "Flower",
+    Interference: "Interference",
     GridWarp: "GridWarp",
     Diamond: "Diamond",
     Square: "Square",
@@ -661,6 +775,13 @@ function setupGUI() {
     Kaleidoscope: "Kaleidoscope",
     Voronoi: "Voronoi",
     Perlin: "Perlin",
+    Superellipse: "Superellipse",
+    BoxWaves: "BoxWaves",
+    Bessel: "Bessel",
+    TriLattice: "TriLattice",
+    Rose: "Rose",
+    Astroid: "Astroid",
+    Checker: "Checker",
   };
 
   const particlesFolder = pane.addFolder({ title: "Particles" });
@@ -755,58 +876,6 @@ function setupGUI() {
 
   const modesFolder = pane.addFolder({ title: "Modes" });
 
-  const modeStyles = {
-    Straight: "Straight",
-    Clean: "Clean",
-    Balanced: "Balanced",
-    Complex: "Complex",
-  };
-
-  const applyModeStyle = (style) => {
-    if (style === "Straight") {
-      // Bias toward straight / slightly bent line results
-      CONFIG.modeCount = 1;
-      CONFIG.modeMin = 2;
-      CONFIG.modeMax = 10;
-
-      CONFIG.integerModes = true;
-      CONFIG.randomPhase = false;
-      CONFIG.randomRotation = false;
-      CONFIG.rotationMaxDeg = 0;
-
-      CONFIG.waveTypeA = "Cartesian";
-      CONFIG.waveTypeB = "Chevron";
-      CONFIG.waveMix = 0.0;
-    } else if (style === "Clean") {
-      CONFIG.modeCount = 2;
-      CONFIG.modeMin = 1;
-      CONFIG.modeMax = 8;
-    } else if (style === "Complex") {
-      CONFIG.modeCount = 8;
-      CONFIG.modeMin = 3;
-      CONFIG.modeMax = 20;
-    } else {
-      CONFIG.modeCount = 4;
-      CONFIG.modeMin = 2;
-      CONFIG.modeMax = 12;
-    }
-  };
-
-  inputs.push(
-    modesFolder
-      .addBinding(CONFIG, "modeStyle", {
-        options: modeStyles,
-        label: "Mode style",
-      })
-      .on("change", (ev) => {
-        if (suppressUIEvents) return;
-        applyModeStyle(ev.value);
-        rebuildField();
-        randomizeModes();
-        if (refreshUI) refreshUI();
-      }),
-  );
-
   inputs.push(
     modesFolder
       .addBinding(CONFIG, "modeCount", {
@@ -817,35 +886,63 @@ function setupGUI() {
       })
       .on("change", () => {
         if (suppressUIEvents) return;
-        randomizeModes();
+        rebuildModesFromConfig();
       }),
   );
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "modeMin", {
+      .addBinding(CONFIG, "mMin", {
         min: 0,
         max: 20,
         step: 0.1,
-        label: "Minimum mode",
+        label: "m min",
       })
       .on("change", () => {
         if (suppressUIEvents) return;
-        if (CONFIG.modeMin > CONFIG.modeMax) CONFIG.modeMax = CONFIG.modeMin;
-        randomizeModes();
+        if (CONFIG.mMin > CONFIG.mMax) CONFIG.mMax = CONFIG.mMin;
+        rebuildModesFromConfig();
       }),
   );
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "modeMax", {
+      .addBinding(CONFIG, "mMax", {
         min: 0,
-        max: 50,
+        max: 40,
         step: 0.1,
-        label: "Maximum mode",
+        label: "m max",
       })
       .on("change", () => {
         if (suppressUIEvents) return;
-        if (CONFIG.modeMax < CONFIG.modeMin) CONFIG.modeMin = CONFIG.modeMax;
-        randomizeModes();
+        if (CONFIG.mMax < CONFIG.mMin) CONFIG.mMin = CONFIG.mMax;
+        rebuildModesFromConfig();
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "nMin", {
+        min: 0,
+        max: 20,
+        step: 0.1,
+        label: "n min",
+      })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        if (CONFIG.nMin > CONFIG.nMax) CONFIG.nMax = CONFIG.nMin;
+        rebuildModesFromConfig();
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "nMax", {
+        min: 0,
+        max: 40,
+        step: 0.1,
+        label: "n max",
+      })
+      .on("change", () => {
+        if (suppressUIEvents) return;
+        if (CONFIG.nMax < CONFIG.nMin) CONFIG.nMin = CONFIG.nMax;
+        rebuildModesFromConfig();
       }),
   );
 
@@ -854,8 +951,7 @@ function setupGUI() {
       .addBinding(CONFIG, "integerModes", { label: "Integer modes" })
       .on("change", () => {
         if (suppressUIEvents) return;
-        initModes();
-        rebuildField();
+        rebuildModesFromConfig();
       }),
   );
   inputs.push(
@@ -863,7 +959,7 @@ function setupGUI() {
       .addBinding(CONFIG, "randomPhase", { label: "Random phase" })
       .on("change", () => {
         if (suppressUIEvents) return;
-        randomizeModes();
+        rebuildModesFromConfig();
       }),
   );
   inputs.push(
@@ -871,7 +967,7 @@ function setupGUI() {
       .addBinding(CONFIG, "randomRotation", { label: "Random rotation" })
       .on("change", () => {
         if (suppressUIEvents) return;
-        randomizeModes();
+        rebuildModesFromConfig();
       }),
   );
   inputs.push(
@@ -884,7 +980,7 @@ function setupGUI() {
       })
       .on("change", () => {
         if (suppressUIEvents) return;
-        randomizeModes();
+        rebuildModesFromConfig();
       }),
   );
 
@@ -916,9 +1012,9 @@ function setupGUI() {
     captureFolder
       .addBinding(CONFIG, "cameraZoom", {
         min: 0.5,
-        max: 5,
+        max: 10,
         step: 0.1,
-        label: "Camera zoom",
+        label: "Zoom",
       })
       .on("change", (ev) => {
         applyCameraZoom(ev.value);
@@ -992,18 +1088,22 @@ function saveImage() {
 }
 
 function randomizeAll() {
-  const modeStyles = ["Straight", "Clean", "Balanced", "Complex"];
   const waveTypes = [
     "Cartesian",
     "Radial",
     "Spiral",
+    "HyperSpiral",
+    "Parabolic",
     "Hexagonal",
     "Quasicrystal",
+    "Gyroid",
     "Lissajous",
     "Moire",
     "Chevron",
     "Ring",
+    "Cassini",
     "Flower",
+    "Interference",
     "GridWarp",
     "Diamond",
     "Square",
@@ -1011,6 +1111,13 @@ function randomizeAll() {
     "Kaleidoscope",
     "Voronoi",
     "Perlin",
+    "Superellipse",
+    "BoxWaves",
+    "Bessel",
+    "TriLattice",
+    "Rose",
+    "Astroid",
+    "Checker",
   ];
 
   const deviceMemory = navigator.deviceMemory || 8;
@@ -1048,10 +1155,11 @@ function randomizeAll() {
     .padStart(6, "0")}`;
   CONFIG.particleSize = 1 + Math.random() * 2;
 
-  CONFIG.modeStyle = modeStyles[Math.floor(Math.random() * modeStyles.length)];
   CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
-  CONFIG.modeMin = Math.random() * 20;
-  CONFIG.modeMax = CONFIG.modeMin + Math.random() * (50 - CONFIG.modeMin);
+  CONFIG.mMin = Math.random() * 20;
+  CONFIG.mMax = CONFIG.mMin + Math.random() * (50 - CONFIG.mMin);
+  CONFIG.nMin = Math.random() * 20;
+  CONFIG.nMax = CONFIG.nMin + Math.random() * (50 - CONFIG.nMin);
 
   CONFIG.integerModes = Math.random() < 0.7;
   CONFIG.randomPhase = Math.random() < 0.5;
