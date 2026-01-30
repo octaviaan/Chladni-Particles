@@ -402,10 +402,6 @@ function rebuildField() {
       const r = Math.pow(Math.pow(rx, p) + Math.pow(ry, p), 1 / p) * 0.5;
       return Math.sin(mode.n * Math.PI * r + mode.px);
     }
-    if (type === "BoxWaves") {
-      const dist = Math.max(Math.abs(cx), Math.abs(cy));
-      return Math.sin(mode.m * 20 * dist + mode.px);
-    }
     if (type === "Bessel") {
       const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
       const theta = Math.atan2(cy, cx);
@@ -424,15 +420,6 @@ function rebuildField() {
       const a1 = k * (rx * -0.5 + ry * 0.866) + mode.py;
       const a2 = k * (rx * -0.5 - ry * 0.866);
       return Math.sin(a0) + Math.sin(a1) + Math.sin(a2);
-    }
-    if (type === "Rose") {
-      const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-      const theta = Math.atan2(cy, cx);
-      const nInt = Math.max(1, Math.round(mode.n));
-      return (
-        Math.sin(mode.m * Math.PI * r + mode.px) *
-        Math.cos(nInt * theta + mode.py)
-      );
     }
     if (type === "Astroid") {
       const rx = Math.abs(cx) * 2.0;
@@ -776,10 +763,8 @@ function setupGUI() {
     Voronoi: "Voronoi",
     Perlin: "Perlin",
     Superellipse: "Superellipse",
-    BoxWaves: "BoxWaves",
     Bessel: "Bessel",
     TriLattice: "TriLattice",
-    Rose: "Rose",
     Astroid: "Astroid",
     Checker: "Checker",
   };
@@ -1112,10 +1097,8 @@ function randomizeAll() {
     "Voronoi",
     "Perlin",
     "Superellipse",
-    "BoxWaves",
     "Bessel",
     "TriLattice",
-    "Rose",
     "Astroid",
     "Checker",
   ];
