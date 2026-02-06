@@ -1104,23 +1104,31 @@ function saveImage({ useViewport = false } = {}) {
   const exportWidth = Math.max(1, Math.round(baseSize));
   const exportHeight = Math.max(1, Math.round(exportWidth / aspect));
 
-  if (!useViewport) {
-    CONFIG.cameraControl.x = CONFIG.cameraDefault.x;
-    CONFIG.cameraControl.y = CONFIG.cameraDefault.y;
-    CONFIG.cameraControl.z = CONFIG.cameraDefault.z;
-    applyCameraFromControl(CONFIG.cameraControl);
-  }
-
   renderer.setPixelRatio(1);
   renderer.setSize(exportWidth, exportHeight, false);
   renderer.setClearColor(oldClearColor, CONFIG.exportOpaque ? 0 : 1);
 
-  const frustumSize = CONFIG.viewScale * 2;
-  camera.left = (-frustumSize * aspect) / 2;
-  camera.right = (frustumSize * aspect) / 2;
-  camera.top = frustumSize / 2;
-  camera.bottom = -frustumSize / 2;
-  camera.updateProjectionMatrix();
+  if (!useViewport) {
+    const range = CONFIG.viewScale;
+    const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+    let halfWidth = range;
+    let halfHeight = rectRy;
+    const boundsAspect = halfWidth / halfHeight;
+    if (boundsAspect > aspect) {
+      halfHeight = halfWidth / aspect;
+    } else {
+      halfWidth = halfHeight * aspect;
+    }
+    camera.zoom = 1;
+    camera.position.x = 0;
+    camera.position.y = 0;
+    camera.lookAt(0, 0, 0);
+    camera.left = -halfWidth;
+    camera.right = halfWidth;
+    camera.top = halfHeight;
+    camera.bottom = -halfHeight;
+    camera.updateProjectionMatrix();
+  }
 
   points.material.size = oldPointSize * (exportWidth / oldSize.x);
   renderer.render(scene, camera);
