@@ -1,13 +1,3 @@
-body {
-  margin: 0;
-  overflow: hidden;
-  background-color: #0b0b0b;
-}
-
-canvas {
-  display: block;
-}
-
 .tp-minimal {
   position: absolute;
   top: 20px;
@@ -15,6 +5,17 @@ canvas {
   width: 300px;
   max-height: calc(100vh - 40px);
   overflow: auto;
+  z-index: 3;
+  --tp-blade-value-width: 160px;
+  --btn-bg: #afcea1;
+}
+
+.tp-message {
+  color: #afcea1;
+  font-size: 11px;
+  line-height: 1.55;
+  padding: 12px 12px;
+  white-space: pre-line;
 }
 
 .tp-row {
@@ -24,40 +25,40 @@ canvas {
 }
 
 .tp-sldv_k::before {
-  background-color: #b3db8e !important;
+  background-color: #afcea1 !important;
 }
 
 .tp-rslv_b::before {
-  background-color: #b3db8e !important;
+  background-color: #afcea1 !important;
 }
 
 .tp-ckbv_i:checked + .tp-ckbv_w svg {
-  color: #b3db8e !important;
+  color: #afcea1 !important;
   fill: none !important;
-  stroke: #b3db8e !important;
+  stroke: #afcea1 !important;
 }
 
 .tp-ckbv_i:checked + .tp-ckbv_w .tp-ckbv_c {
-  border-color: #b3db8e !important;
-  background-color: #b3db8e !important;
+  border-color: #afcea1 !important;
+  background-color: #afcea1 !important;
 }
 
 .tp-ckbv_i:checked + .tp-ckbv_w svg * {
   fill: none !important;
-  stroke: #b3db8e !important;
+  stroke: #afcea1 !important;
 }
 
 .tp-ckbv_i:checked + .tp-ckbv_w .tp-ckbv_c svg path {
   fill: none !important;
-  stroke: #b3db8e !important;
+  stroke: #afcea1 !important;
 }
 
 .tp-txtv_i,
 .tp-numb_i {
-  color: #b3db8e !important;
+  color: #afcea1 !important;
 }
 
 .tp-fpsv svg polyline {
-  stroke: #b3db8e !important;
+  stroke: #afcea1 !important;
   fill: none !important;
 }
