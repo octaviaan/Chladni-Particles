@@ -635,32 +635,7 @@ function randomizeModes() {
 
   CONFIG.integerModes = Math.random() < 0.5;
 
-  modes = [];
-  for (let i = 0; i < CONFIG.modeCount; i++) {
-    const mRaw = modeValueAt(
-      i,
-      CONFIG.modeCount,
-      CONFIG.mRange.min,
-      CONFIG.mRange.max,
-    );
-    const nRaw = modeValueAt(
-      i,
-      CONFIG.modeCount,
-      CONFIG.nRange.min,
-      CONFIG.nRange.max,
-      true,
-    );
-    modes.push({
-      m: quantizeModeValue(mRaw),
-      n: quantizeModeValue(nRaw),
-      a: Math.exp(-i * 0.35),
-      px: 0,
-      py: 0,
-      cos: 1,
-      sin: 0,
-    });
-  }
-  normalizeModeAmplitudes();
+  initModes();
   rebuildField();
 
   if (refreshUI) {
@@ -960,7 +935,7 @@ function setupGUI() {
     wavesFolder
       .addBinding(CONFIG, "waveTypeA", {
         options: waveTypeOptions,
-        label: "Type A",
+        label: "Wave A",
       })
       .on("change", () => rebuildField()),
   );
@@ -968,7 +943,7 @@ function setupGUI() {
     wavesFolder
       .addBinding(CONFIG, "waveTypeB", {
         options: waveTypeOptions,
-        label: "Type B",
+        label: "Wave B",
       })
       .on("change", () => rebuildField()),
   );
@@ -995,9 +970,9 @@ function setupGUI() {
   inputs.push(
     wavesFolder
       .addBinding(CONFIG, "fieldScale", {
-        min: 0.25,
-        max: 2.5,
-        step: 0.01,
+        min: 0.5,
+        max: 5.0,
+        step: 0.1,
         label: "Field scale",
       })
       .on("change", () => rebuildField()),
@@ -1152,7 +1127,6 @@ function randomizeWaves() {
   const keys = WAVE_TYPE_KEYS;
   CONFIG.waveTypeA = keys[Math.floor(Math.random() * keys.length)];
   CONFIG.waveTypeB = keys[Math.floor(Math.random() * keys.length)];
-  CONFIG.waveMix = Math.random();
 
   rebuildField();
   if (refreshUI) refreshUI();
