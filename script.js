@@ -4,18 +4,18 @@ import * as EssentialsPlugin from "tweakpane-plugin-essentials";
 
 // --- Configuration ---
 const CONFIG = {
-  particleCount: 400000,
+  particleCount: 300000,
   gridSize: 256,
-  settleStrength: 3.5,
+  settleStrength: 2.0,
   jitter: 0.1,
   drag: 0.85,
   speedLimit: 2.0,
   viewScale: 600,
   color: "#b3a79b",
-  particleSize: 1.5,
+  particleSize: 2.0,
   particleOpacity: 1.0,
-  cameraControl: { x: 0, y: 0, z: 1.9 },
-  cameraDefault: { x: 0, y: 0, z: 1.9 },
+  cameraControl: { x: 0, y: 0, z: 1 },
+  cameraDefault: { x: 0, y: 0, z: 1 },
   exportBaseSize: 3000,
   exportOpaque: false,
 
@@ -24,6 +24,7 @@ const CONFIG = {
   nRange: { min: 4, max: 8 },
 
   rectAspect: 1,
+  fieldScale: 1.0,
 
   waveTypeA: "Cartesian",
   waveTypeB: "Radial",
@@ -61,20 +62,6 @@ const valueNoise = (x, y) => {
 // --- Wave Strategy Definitions ---
 const WAVE_FUNCTIONS = {
   // --- New Types ---
-  Superformula: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy);
-    const phi = Math.atan2(cy, cx);
-    const a = 1,
-      b = 1;
-    const m_val = Math.max(3, mode.m * 2);
-    const n1 = 0.5 + (mode.n % 5);
-    const n2 = 1.0;
-    const n3 = 1.0;
-    const part1 = Math.pow(Math.abs(Math.cos((m_val * phi) / 4) / a), n2);
-    const part2 = Math.pow(Math.abs(Math.sin((m_val * phi) / 4) / b), n3);
-    const r_shape = Math.pow(part1 + part2, -1 / n1);
-    return Math.sin((r - r_shape * 0.5) * 40 + mode.px);
-  },
   Wallpaper: (cx, cy, mode) => {
     const scale = 3 + (mode.m % 5);
     const wx = (cx * scale + 100) % 2.0;
@@ -85,16 +72,6 @@ const WAVE_FUNCTIONS = {
       Math.sin(fx * Math.PI * mode.n + mode.px) *
       Math.cos(fy * Math.PI * mode.n + mode.py)
     );
-  },
-  Turbulence: (cx, cy, mode) => {
-    const scale = 2.0;
-    const qx = valueNoise(cx * scale + mode.px, cy * scale + mode.py);
-    const qy = valueNoise(cx * scale + 5.2, cy * scale + 1.3);
-    const rx = valueNoise(
-      cx * scale + 4.0 * qx + 1.7,
-      cy * scale + 4.0 * qy + 9.2,
-    );
-    return Math.sin((cx + rx) * mode.m * 10 + mode.px);
   },
   Rosette: (cx, cy, mode) => {
     const N = Math.max(3, Math.round(mode.m));
@@ -301,6 +278,14 @@ const WAVE_FUNCTIONS = {
     const j = Math.sin(x - (nInt * Math.PI) / 2) / Math.sqrt(x);
     return j * Math.cos(nInt * theta + mode.py);
   },
+  Spirograph: (cx, cy, mode) => {
+    const theta = Math.atan2(cy, cx);
+    const r = Math.sqrt(cx * cx + cy * cy);
+    const k = Math.max(2, Math.round(mode.m));
+    const lobe = 0.35 + 0.05 * (mode.n % 6);
+    const target = lobe * (1 - Math.cos(k * theta));
+    return Math.sin((r - target) * mode.m * 25 + mode.px);
+  },
   TriLattice: (cx, cy, mode) => {
     const rx = cx * mode.cos - cy * mode.sin;
     const ry = cx * mode.sin + cy * mode.cos;
@@ -491,15 +476,16 @@ function rebuildField() {
   const funcA = WAVE_FUNCTIONS[CONFIG.waveTypeA] || WAVE_FUNCTIONS["Cartesian"];
   const funcB = WAVE_FUNCTIONS[CONFIG.waveTypeB] || WAVE_FUNCTIONS["Cartesian"];
   const baseBias = CONFIG.waveMix - 0.5;
-  const maxR = Math.SQRT1_2;
+  const fieldScale = Math.max(0.05, CONFIG.fieldScale || 1);
+  const maxR = Math.SQRT1_2 * fieldScale;
   const spatialMixScale = 3.0;
 
   for (let y = 0; y < G; y++) {
     for (let x = 0; x < G; x++) {
       const tx = x / (G - 1);
       const ty = y / (G - 1);
-      const cx = tx - 0.5;
-      const cy = ty - 0.5;
+      const cx = (tx - 0.5) * fieldScale;
+      const cy = (ty - 0.5) * fieldScale;
 
       const idx = y * G + x;
       let phi = 0;
@@ -888,15 +874,12 @@ function setupGUI() {
     particlesFolder
       .addBinding(CONFIG, "particleCount", {
         min: 50000,
-        max: 1000000,
-        step: 20000,
+        max: 500000,
+        step: 10000,
         label: "Count",
       })
       .on("change", () => rebuildParticles()),
   );
-  particlesFolder
-    .addButton({ title: "Rebuild particles" })
-    .on("click", () => rebuildParticles());
   inputs.push(
     particlesFolder
       .addBinding(CONFIG, "particleSize", {
@@ -914,26 +897,9 @@ function setupGUI() {
       .addBinding(CONFIG, "color", { label: "Color" })
       .on("change", (ev) => applyParticleColor(ev.value)),
   );
-  inputs.push(
-    particlesFolder
-      .addBinding(CONFIG, "viewScale", {
-        view: "radiogrid",
-        groupName: "view-scale",
-        size: [3, 1],
-        cells: (x) => {
-          const values = [400, 600, 800];
-          const value = values[x];
-          return { title: String(value), value };
-        },
-        label: "View scale",
-      })
-      .on("change", () => {
-        onWindowResize();
-        rebuildParticles();
-        allocateField();
-        rebuildField();
-      }),
-  );
+  particlesFolder
+    .addButton({ title: "Rebuild particles" })
+    .on("click", () => rebuildParticles());
 
   const motionFolder = pane.addFolder({ title: "Motion" });
   inputs.push(
@@ -946,7 +912,7 @@ function setupGUI() {
   inputs.push(
     motionFolder.addBinding(CONFIG, "jitter", {
       min: 0.0,
-      max: 0.5,
+      max: 0.3,
       step: 0.01,
     }),
   );
@@ -955,8 +921,8 @@ function setupGUI() {
   );
   inputs.push(
     motionFolder.addBinding(CONFIG, "speedLimit", {
-      min: 0.5,
-      max: 4.0,
+      min: 0.2,
+      max: 3.0,
       step: 0.1,
     }),
   );
@@ -998,6 +964,16 @@ function setupGUI() {
       })
       .on("change", () => rebuildField()),
   );
+  inputs.push(
+    wavesFolder
+      .addBinding(CONFIG, "fieldScale", {
+        min: 0.25,
+        max: 2.5,
+        step: 0.01,
+        label: "Field scale",
+      })
+      .on("change", () => rebuildField()),
+  );
   wavesFolder
     .addButton({ title: "Randomize waves" })
     .on("click", () => randomizeWaves());
@@ -1005,33 +981,25 @@ function setupGUI() {
   const modesFolder = pane.addFolder({ title: "Modes" });
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "modeCount", { min: 1, max: 10, step: 0.1 })
+      .addBinding(CONFIG, "modeCount", { min: 1, max: 10, step: 1 })
       .on("change", () => {
         if (!suppressUIEvents) rebuildModesFromConfig();
       }),
   );
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "mRange", { min: 0, max: 10, step: 0.1 })
+      .addBinding(CONFIG, "mRange", { min: 1, max: 10, step: 0.1 })
       .on("change", () => {
         if (!suppressUIEvents) rebuildModesFromConfig();
       }),
   );
   inputs.push(
     modesFolder
-      .addBinding(CONFIG, "nRange", { min: 0, max: 10, step: 0.1 })
+      .addBinding(CONFIG, "nRange", { min: 1, max: 10, step: 0.1 })
       .on("change", () => {
         if (!suppressUIEvents) rebuildModesFromConfig();
       }),
   );
-  inputs.push(
-    modesFolder.addBinding(CONFIG, "integerModes").on("change", () => {
-      if (!suppressUIEvents) rebuildModesFromConfig();
-    }),
-  );
-  modesFolder
-    .addButton({ title: "Randomize modes" })
-    .on("click", () => randomizeModes());
 
   const captureFolder = pane.addFolder({ title: "Capture" });
   inputs.push(
@@ -1156,7 +1124,6 @@ function randomizeWaves() {
   const keys = WAVE_TYPE_KEYS;
   CONFIG.waveTypeA = keys[Math.floor(Math.random() * keys.length)];
   CONFIG.waveTypeB = keys[Math.floor(Math.random() * keys.length)];
-  CONFIG.waveMix = Math.random();
 
   rebuildField();
   if (refreshUI) refreshUI();
