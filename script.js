@@ -61,144 +61,14 @@ const valueNoise = (x, y) => {
 
 // --- Wave Strategy Definitions ---
 const WAVE_FUNCTIONS = {
-  // --- New Types ---
-  Wallpaper: (cx, cy, mode) => {
-    const scale = 3 + (mode.m % 5);
-    const wx = (cx * scale + 100) % 2.0;
-    const wy = (cy * scale + 100) % 2.0;
-    const fx = Math.abs(wx - 1.0);
-    const fy = Math.abs(wy - 1.0);
-    return (
-      Math.sin(fx * Math.PI * mode.n + mode.px) *
-      Math.cos(fy * Math.PI * mode.n + mode.py)
-    );
-  },
-  Rosette: (cx, cy, mode) => {
-    const N = Math.max(3, Math.round(mode.m));
-    let sum = 0;
-    for (let i = 0; i < N; i++) {
-      const theta = (Math.PI * 2 * i) / N;
-      const rx = cx * Math.cos(theta) - cy * Math.sin(theta);
-      sum += Math.cos(rx * mode.n * 20 + mode.px);
-    }
-    return sum / N;
-  },
-  // --- Standard Types ---
-  Cartesian: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    return (
-      Math.sin(mode.m * Math.PI * (rx + 0.5) + mode.px) *
-      Math.sin(mode.n * Math.PI * (ry + 0.5) + mode.py)
-    );
-  },
-  Radial: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const theta = Math.atan2(cy, cx);
-    return (
-      Math.sin(mode.n * Math.PI * r + mode.px) *
-      Math.cos(Math.round(mode.m) * theta + mode.py)
-    );
-  },
-  Spiral: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const theta = Math.atan2(cy, cx);
-    return Math.sin(
-      mode.n * Math.PI * r + Math.round(mode.m) * theta + mode.px,
-    );
-  },
-  Parabolic: (cx, cy, mode) => {
-    const u = cx * cx - cy * cy;
-    const v = 2 * cx * cy;
-    return Math.sin(mode.m * Math.PI * u) * Math.sin(mode.n * Math.PI * v);
-  },
-  Hexagonal: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    const kFreq = mode.m * Math.PI;
-    const v1 = rx;
-    const v2 = -0.5 * rx + 0.866 * ry;
-    const v3 = -0.5 * rx - 0.866 * ry;
-    return (
-      Math.sin(kFreq * v1 + mode.px) +
-      Math.sin(kFreq * v2 + mode.py) +
-      Math.sin(kFreq * v3)
-    );
-  },
-  Quasicrystal: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    const kFreq = mode.m * Math.PI;
-    let sum = 0;
-    for (let j = 0; j < 5; j++) {
-      const theta = (Math.PI * 2 * j) / 5;
-      const v = rx * Math.cos(theta) + ry * Math.sin(theta);
-      sum += Math.cos(kFreq * v + mode.px);
-    }
-    return sum;
-  },
-  Gyroid: (cx, cy, mode) => {
-    const scaleX = mode.m * 10;
-    const scaleY = Math.max(0.5, mode.n) * 10;
-    return (
-      Math.sin(cx * scaleX) * Math.cos(cy * scaleY) +
-      Math.sin(cy * scaleY) * Math.cos(mode.px)
-    );
-  },
-  Lissajous: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    return (
-      Math.sin(mode.m * Math.PI * rx + mode.px) *
-      Math.sin(mode.n * Math.PI * ry + mode.py)
-    );
-  },
-  Chevron: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    return (
-      Math.sin(mode.m * Math.PI * (rx + ry) + mode.px) *
-      Math.sin(mode.n * Math.PI * (rx - ry) + mode.py)
-    );
-  },
-  Ring: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    return Math.sin(mode.m * Math.PI * r + mode.px);
-  },
-  Cassini: (cx, cy, mode) => {
-    const a = mode.m * 0.1;
-    const d1 = (cx - a) * (cx - a) + cy * cy;
-    const d2 = (cx + a) * (cx + a) + cy * cy;
-    return Math.sin(Math.sqrt(d1 * d2) * 20 - mode.n * 5);
-  },
-  Flower: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const theta = Math.atan2(cy, cx);
-    return (
-      Math.sin(mode.m * Math.PI * r + mode.px) *
-      Math.cos(Math.round(mode.n) * theta + mode.py)
-    );
-  },
-  Interference: (cx, cy, mode) => {
-    const d1 = Math.sqrt((cx + 0.3) ** 2 + cy ** 2);
-    const d2 = Math.sqrt((cx - 0.3) ** 2 + cy ** 2);
-    return Math.sin(mode.m * 20 * d1) + Math.sin(mode.m * 20 * d2 + mode.px);
-  },
-  Rose: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const theta = Math.atan2(cy, cx);
-    const k = Math.max(2, Math.round(mode.m));
-    return Math.sin(k * theta + mode.px) * Math.cos(mode.n * Math.PI * r);
-  },
-  SincRipple: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0 + 1e-4;
-    const k = Math.max(1.5, mode.m);
-    return Math.sin(k * Math.PI * r + mode.px) / (k * r);
-  },
-  Chebyshev: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const n = Math.max(2, Math.round(mode.m));
-    return Math.cos(n * Math.acos(Math.max(-1, Math.min(1, r))) + mode.px);
+  Beat: (cx, cy, mode) => {
+    const ax = 0.35;
+    const ay = 0.1;
+    const d1 = Math.sqrt((cx + ax) ** 2 + (cy + ay) ** 2);
+    const d2 = Math.sqrt((cx - ax) ** 2 + (cy - ay) ** 2);
+    const k1 = mode.m * 16;
+    const k2 = (mode.n + 0.35) * 16;
+    return Math.sin(k1 * d1 + mode.px) + Math.sin(k2 * d2 + mode.py);
   },
   Biharmonic: (cx, cy, mode) => {
     const rx = cx * mode.cos - cy * mode.sin;
@@ -213,6 +83,46 @@ const WAVE_FUNCTIONS = {
         Math.sin((b + 2) * Math.PI * ry + mode.px)
     );
   },
+  Cartesian: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    return (
+      Math.sin(mode.m * Math.PI * (rx + 0.5) + mode.px) *
+      Math.sin(mode.n * Math.PI * (ry + 0.5) + mode.py)
+    );
+  },
+  Cassini: (cx, cy, mode) => {
+    const a = mode.m * 0.1;
+    const d1 = (cx - a) * (cx - a) + cy * cy;
+    const d2 = (cx + a) * (cx + a) + cy * cy;
+    return Math.sin(Math.sqrt(d1 * d2) * 20 - mode.n * 5);
+  },
+  Chebyshev: (cx, cy, mode) => {
+    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+    const n = Math.max(2, Math.round(mode.m));
+    return Math.cos(n * Math.acos(Math.max(-1, Math.min(1, r))) + mode.px);
+  },
+  Chevron: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    return (
+      Math.sin(mode.m * Math.PI * (rx + ry) + mode.px) *
+      Math.sin(mode.n * Math.PI * (rx - ry) + mode.py)
+    );
+  },
+  Crosshatch: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    return (
+      Math.sin(mode.m * Math.PI * rx + mode.px) +
+      Math.sin(mode.n * Math.PI * ry + mode.py)
+    );
+  },
+  Diamond: (cx, cy, mode) => {
+    return Math.sin(
+      mode.m * Math.PI * (Math.abs(cx) + Math.abs(cy)) * 2.0 + mode.px,
+    );
+  },
   GridWarp: (cx, cy, mode) => {
     const rx = cx * mode.cos - cy * mode.sin;
     const ry = cx * mode.sin + cy * mode.cos;
@@ -224,9 +134,134 @@ const WAVE_FUNCTIONS = {
       Math.sin(mode.n * Math.PI * v + mode.py)
     );
   },
-  Diamond: (cx, cy, mode) => {
+  Gyroid: (cx, cy, mode) => {
+    const scaleX = mode.m * 10;
+    const scaleY = Math.max(0.5, mode.n) * 10;
+    return (
+      Math.sin(cx * scaleX) * Math.cos(cy * scaleY) +
+      Math.sin(cy * scaleY) * Math.cos(mode.px)
+    );
+  },
+  Hexagonal: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    const kFreq = mode.m * Math.PI;
+    const v1 = rx;
+    const v2 = -0.5 * rx + 0.866 * ry;
+    const v3 = -0.5 * rx - 0.866 * ry;
+    return (
+      Math.sin(kFreq * v1 + mode.px) +
+      Math.sin(kFreq * v2 + mode.py) +
+      Math.sin(kFreq * v3)
+    );
+  },
+  Interference: (cx, cy, mode) => {
+    const d1 = Math.sqrt((cx + 0.3) ** 2 + cy ** 2);
+    const d2 = Math.sqrt((cx - 0.3) ** 2 + cy ** 2);
+    return Math.sin(mode.m * 20 * d1) + Math.sin(mode.m * 20 * d2 + mode.px);
+  },
+  Lattice: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    const k = mode.m * Math.PI;
+    const v1 = rx;
+    const v2 = -0.5 * rx + 0.866 * ry;
+    const v3 = -0.5 * rx - 0.866 * ry;
+    return (
+      Math.cos(k * v1 + mode.px) * Math.cos(k * v2 + mode.py) * Math.cos(k * v3)
+    );
+  },
+  Lissajous: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    return (
+      Math.sin(mode.m * Math.PI * rx + mode.px) *
+      Math.sin(mode.n * Math.PI * ry + mode.py)
+    );
+  },
+  MultiSource: (cx, cy, mode) => {
+    const k = mode.m * 14;
+    const sources = [
+      [0.35, 0.0],
+      [-0.35, 0.0],
+      [0.0, 0.3],
+      [0.0, -0.3],
+    ];
+    let sum = 0;
+    for (let i = 0; i < sources.length; i++) {
+      const sx = sources[i][0];
+      const sy = sources[i][1];
+      const d = Math.sqrt((cx - sx) ** 2 + (cy - sy) ** 2);
+      sum += Math.sin(k * d + mode.px + i * 0.7);
+    }
+    return sum / sources.length;
+  },
+  Octagon: (cx, cy, mode) => {
+    const x = Math.abs(cx);
+    const y = Math.abs(cy);
+    const d1 = (x + y) * 0.7071;
+    const d2 = Math.abs(x - y) * 0.7071;
+    const r = Math.max(x, y, d1, d2) * 2.0;
+    return Math.sin(mode.m * Math.PI * r + mode.px);
+  },
+  Parabolic: (cx, cy, mode) => {
+    const u = cx * cx - cy * cy;
+    const v = 2 * cx * cy;
+    return Math.sin(mode.m * Math.PI * u) * Math.sin(mode.n * Math.PI * v);
+  },
+  Quasicrystal: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    const kFreq = mode.m * Math.PI;
+    let sum = 0;
+    for (let j = 0; j < 5; j++) {
+      const theta = (Math.PI * 2 * j) / 5;
+      const v = rx * Math.cos(theta) + ry * Math.sin(theta);
+      sum += Math.cos(kFreq * v + mode.px);
+    }
+    return sum;
+  },
+  Radial: (cx, cy, mode) => {
+    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+    const theta = Math.atan2(cy, cx);
+    return (
+      Math.sin(mode.n * Math.PI * r + mode.px) *
+      Math.cos(Math.round(mode.m) * theta + mode.py)
+    );
+  },
+  RingInterference: (cx, cy, mode) => {
+    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+    const ax = 0.35;
+    const d1 = Math.sqrt((cx + ax) ** 2 + cy * cy) * 2.0;
+    const d2 = Math.sqrt((cx - ax) ** 2 + cy * cy) * 2.0;
+    const k = mode.m * Math.PI * 2;
+    return (
+      Math.sin(k * r + mode.px) +
+      0.5 * Math.sin(k * d1 + mode.py) +
+      0.5 * Math.sin(k * d2 + mode.py)
+    );
+  },
+  Rose: (cx, cy, mode) => {
+    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+    const theta = Math.atan2(cy, cx);
+    const k = Math.max(2, Math.round(mode.m));
+    return Math.sin(k * theta + mode.px) * Math.cos(mode.n * Math.PI * r);
+  },
+  Rosette: (cx, cy, mode) => {
+    const N = Math.max(3, Math.round(mode.m));
+    let sum = 0;
+    for (let i = 0; i < N; i++) {
+      const theta = (Math.PI * 2 * i) / N;
+      const rx = cx * Math.cos(theta) - cy * Math.sin(theta);
+      sum += Math.cos(rx * mode.n * 20 + mode.px);
+    }
+    return sum / N;
+  },
+  Spiral: (cx, cy, mode) => {
+    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
+    const theta = Math.atan2(cy, cx);
     return Math.sin(
-      mode.m * Math.PI * (Math.abs(cx) + Math.abs(cy)) * 2.0 + mode.px,
+      mode.n * Math.PI * r + Math.round(mode.m) * theta + mode.px,
     );
   },
   Square: (cx, cy, mode) => {
@@ -234,22 +269,18 @@ const WAVE_FUNCTIONS = {
       mode.m * Math.PI * Math.max(Math.abs(cx), Math.abs(cy)) * 2.0 + mode.px,
     );
   },
-  Lattice: (cx, cy, mode) => {
+  Stripe: (cx, cy, mode) => {
     const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    return (
-      Math.cos(mode.m * Math.PI * rx + mode.px) *
-      Math.cos(mode.n * Math.PI * ry + mode.py)
-    );
+    return Math.sin(mode.m * Math.PI * rx + mode.px);
   },
-  Kaleidoscope: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const baseTheta = Math.atan2(cy, cx) + mode.py;
-    const slices = Math.max(3, Math.round(mode.n));
-    const wedge = Math.PI / slices;
-    let theta = (baseTheta + Math.PI) % (2 * wedge);
-    if (theta > wedge) theta = 2 * wedge - theta;
-    return Math.sin(mode.m * Math.PI * r + mode.px) * Math.cos(theta * slices);
+  Superellipse: (cx, cy, mode) => {
+    const p = 0.8 + (Math.abs(mode.m) % 4) * 0.4;
+    const r =
+      Math.pow(
+        Math.pow(Math.abs(cx) * 2, p) + Math.pow(Math.abs(cy) * 2, p),
+        1 / p,
+      ) * 0.5;
+    return Math.sin(mode.n * Math.PI * r + mode.px);
   },
   Voronoi: (cx, cy, mode) => {
     let minD = 1e9;
@@ -261,70 +292,16 @@ const WAVE_FUNCTIONS = {
     }
     return Math.sin(mode.m * Math.PI * minD * 2 + mode.px);
   },
-  Superellipse: (cx, cy, mode) => {
-    const p = 0.8 + (Math.abs(mode.m) % 4) * 0.4;
-    const r =
-      Math.pow(
-        Math.pow(Math.abs(cx) * 2, p) + Math.pow(Math.abs(cy) * 2, p),
-        1 / p,
-      ) * 0.5;
-    return Math.sin(mode.n * Math.PI * r + mode.px);
-  },
-  Bessel: (cx, cy, mode) => {
-    const r = Math.sqrt(cx * cx + cy * cy) * 2.0;
-    const theta = Math.atan2(cy, cx);
-    const nInt = Math.max(0, Math.round(mode.n));
-    const x = Math.max(1e-4, mode.m * Math.PI * r + 1e-4);
-    const j = Math.sin(x - (nInt * Math.PI) / 2) / Math.sqrt(x);
-    return j * Math.cos(nInt * theta + mode.py);
-  },
-  Spirograph: (cx, cy, mode) => {
-    const theta = Math.atan2(cy, cx);
-    const r = Math.sqrt(cx * cx + cy * cy);
-    const k = Math.max(2, Math.round(mode.m));
-    const lobe = 0.35 + 0.05 * (mode.n % 6);
-    const target = lobe * (1 - Math.cos(k * theta));
-    return Math.sin((r - target) * mode.m * 25 + mode.px);
-  },
-  TriLattice: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    const k = mode.m * Math.PI;
+  Wallpaper: (cx, cy, mode) => {
+    const scale = 3 + (mode.m % 5);
+    const wx = (cx * scale + 100) % 2.0;
+    const wy = (cy * scale + 100) % 2.0;
+    const fx = Math.abs(wx - 1.0);
+    const fy = Math.abs(wy - 1.0);
     return (
-      Math.sin(k * rx + mode.px) +
-      Math.sin(k * (rx * -0.5 + ry * 0.866) + mode.py) +
-      Math.sin(k * (rx * -0.5 - ry * 0.866))
+      Math.sin(fx * Math.PI * mode.n + mode.px) *
+      Math.cos(fy * Math.PI * mode.n + mode.py)
     );
-  },
-  Checker: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    const a = mode.m * Math.PI;
-    const b = mode.n * Math.PI;
-    return (
-      Math.sin(a * rx + mode.px) * Math.sin(b * ry + mode.py) +
-      Math.sin(b * rx + mode.px) * Math.sin(a * ry + mode.py)
-    );
-  },
-  Stripe: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    return Math.sin(mode.m * Math.PI * rx + mode.px);
-  },
-  Crosshatch: (cx, cy, mode) => {
-    const rx = cx * mode.cos - cy * mode.sin;
-    const ry = cx * mode.sin + cy * mode.cos;
-    return (
-      Math.sin(mode.m * Math.PI * rx + mode.px) +
-      Math.sin(mode.n * Math.PI * ry + mode.py)
-    );
-  },
-  Octagon: (cx, cy, mode) => {
-    const x = Math.abs(cx);
-    const y = Math.abs(cy);
-    const d1 = (x + y) * 0.7071;
-    const d2 = Math.abs(x - y) * 0.7071;
-    const r = Math.max(x, y, d1, d2) * 2.0;
-    return Math.sin(mode.m * Math.PI * r + mode.px);
   },
 };
 
@@ -332,13 +309,11 @@ const WAVE_TYPE_KEYS = Object.keys(WAVE_FUNCTIONS);
 
 // --- Global Variables ---
 let scene, camera, renderer, geometry, points;
-let positions, velocities, colors; // Added colors
+let positions, velocities, colors;
 let refreshUI = null;
 let suppressUIEvents = false;
 let isPanning = false;
 let lastPointer = { x: 0, y: 0 };
-const UI_MESSAGE =
-  "Mouse wheel: zoom\nClick & drag: pan\nDouble click: reset position\nR: randomize all";
 
 // Field Data
 let energy;
@@ -359,6 +334,7 @@ function init() {
   scene = new THREE.Scene();
   const aspect = window.innerWidth / window.innerHeight;
   const frustumSize = CONFIG.viewScale * 2;
+
   camera = new THREE.OrthographicCamera(
     (-frustumSize * aspect) / 2,
     (frustumSize * aspect) / 2,
@@ -387,7 +363,7 @@ function init() {
   );
 
   const material = new THREE.PointsMaterial({
-    color: 0xffffff, // Use vertex colors
+    color: 0xffffff,
     vertexColors: true,
     size: CONFIG.particleSize,
     map: sprite,
@@ -410,7 +386,6 @@ function init() {
 }
 
 // --- Physics & Math ---
-
 function allocateField() {
   const size = CONFIG.gridSize * CONFIG.gridSize;
   energy = new Float32Array(size);
@@ -453,13 +428,7 @@ function rebuildParticles() {
 }
 
 function applyParticleColor(hex) {
-  if (
-    !colors ||
-    !geometry ||
-    !geometry.attributes ||
-    !geometry.attributes.color
-  )
-    return;
+  if (!colors || !geometry?.attributes?.color) return;
   const nextColor = new THREE.Color(hex);
   const count = CONFIG.particleCount;
   for (let i = 0; i < count; i++) {
@@ -497,6 +466,7 @@ function rebuildField() {
       const noise = clamp(0.5 + 0.5 * noiseRaw * noiseRange, 0, 1);
       const mixed = (1 - noiseWeight) * rn + noiseWeight * noise + baseBias;
       const spatialMix = smoothstep(clamp(mixed, 0, 1));
+
       for (let k = 0; k < modes.length; k++) {
         const mode = modes[k];
         const wa = Math.tanh(funcA(cx, cy, mode));
@@ -540,7 +510,6 @@ function updateParticles() {
   const vel = velocities;
   const count = CONFIG.particleCount;
 
-  // Optimization: Cache config values to avoid object lookups inside the hot loop
   const settle = CONFIG.settleStrength;
   const jitter = CONFIG.jitter;
   const drag = CONFIG.drag;
@@ -665,6 +634,7 @@ function randomizeModes() {
     CONFIG.nRange.min + Math.random() * (15 - CONFIG.nRange.min);
 
   CONFIG.integerModes = Math.random() < 0.5;
+
   modes = [];
   for (let i = 0; i < CONFIG.modeCount; i++) {
     const mRaw = modeValueAt(
@@ -692,6 +662,7 @@ function randomizeModes() {
   }
   normalizeModeAmplitudes();
   rebuildField();
+
   if (refreshUI) {
     suppressUIEvents = true;
     refreshUI();
@@ -770,6 +741,7 @@ function clamp(value, min, max) {
 
 function setupMouseControls() {
   const canvas = renderer.domElement;
+
   canvas.addEventListener(
     "wheel",
     (event) => {
@@ -854,14 +826,70 @@ function setupGUI() {
   pane.registerPlugin(EssentialsPlugin);
   const inputs = [];
 
-  const message = document.createElement("div");
-  message.className = "tp-message";
-  message.textContent = UI_MESSAGE;
   const titleEl = pane.element.querySelector(".tp-rotv_t");
+
+  const legendStyle = document.createElement("style");
+  legendStyle.textContent = `
+    .tp-legend{
+      margin: 4px 14px 4px;
+      padding: 2px 2px;
+      color: #afcea1;
+      font: 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
+      display: grid;
+      gap: 4px;
+    }
+    .tp-legend-row{ display:flex; align-items:center; gap:8px; white-space:nowrap; }
+    .tp-legend-ico{ width:24px; height:24px; display:inline-flex; opacity:.95; }
+    .tp-legend svg{ display:block; }
+  `;
+  document.head.appendChild(legendStyle);
+
+  const svgs = {
+    wheel: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M12 21C8.68629 21 6 18.3137 6 15V9C6 5.68629 8.68629 3 12 3C15.3137 3 18 5.68629 18 9V15C18 18.3137 15.3137 21 12 21Z" stroke="#B8B8B8" stroke-linecap="round" stroke-linejoin="round"/>
+<path d="M12 10V8" stroke="#AFCEA1" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+
+`,
+    drag: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M12.0049 8.75V14.75" stroke="#B8B8B8"/>
+<path d="M15.0049 12L9.00488 12" stroke="#B8B8B8"/>
+<path d="M12 3L14.5981 6.75H9.40192L12 3Z" fill="#AFCEA1"/>
+<path d="M12 21L9.40192 17.25L14.5981 17.25L12 21Z" fill="#AFCEA1"/>
+<path d="M21 12L17.25 14.5981L17.25 9.40192L21 12Z" fill="#AFCEA1"/>
+<path d="M3 12L6.75 9.40192L6.75 14.5981L3 12Z" fill="#AFCEA1"/>
+</svg>
+
+`,
+    dbl: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<path d="M12 21C8.68629 21 6 18.3137 6 15V9C6 5.68629 8.68629 3 12 3C15.3137 3 18 5.68629 18 9V15C18 18.3137 15.3137 21 12 21Z" stroke="#B8B8B8" stroke-linecap="round" stroke-linejoin="round"/>
+<circle cx="8.5" cy="6.5" r="3.5" fill="#AFCEA1"/>
+</svg>
+`,
+    keyR: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke="#B8B8B8"/>
+<path d="M10.7831 16H9V8H12.253C12.6627 8 13.0281 8.06113 13.3494 8.18338C13.6707 8.29799 13.9398 8.46609 14.1566 8.68768C14.3815 8.90926 14.5502 9.1767 14.6627 9.48997C14.7751 9.80325 14.8313 10.1547 14.8313 10.5444C14.8313 11.1098 14.7028 11.595 14.4458 12C14.1888 12.405 13.8233 12.6724 13.3494 12.8023L15 16H13.0241L11.6145 13.0315H10.7831V16ZM11.8193 11.702C12.245 11.702 12.5382 11.6256 12.6988 11.4728C12.8675 11.32 12.9518 11.0678 12.9518 10.7163V10.3725C12.9518 10.021 12.8675 9.76886 12.6988 9.61605C12.5382 9.46323 12.245 9.38682 11.8193 9.38682H10.7831V11.702H11.8193Z" fill="#AFCEA1"/>
+</svg>
+
+`,
+  };
+
+  const legend = document.createElement("div");
+  legend.className = "tp-legend";
+  legend.innerHTML = `
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.wheel}</span><span>Wheel: zoom</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.drag}</span><span>Drag: pan</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.dbl}</span><span>Double click: reset postion</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyR}</span><span>R: randomize all</span></div>
+  `;
   if (titleEl && titleEl.parentElement) {
-    titleEl.parentElement.insertAdjacentElement("afterend", message);
+    titleEl.parentElement.insertAdjacentElement("afterend", legend);
   } else {
-    pane.element.prepend(message);
+    pane.element.prepend(legend);
   }
 
   const waveTypeOptions = WAVE_TYPE_KEYS.reduce((obj, key) => {
@@ -1006,7 +1034,7 @@ function setupGUI() {
     captureFolder.addBinding(CONFIG, "exportBaseSize", {
       min: 1000,
       max: 9000,
-      step: 1000,
+      step: 500,
     }),
   );
   inputs.push(
@@ -1124,13 +1152,15 @@ function randomizeWaves() {
   const keys = WAVE_TYPE_KEYS;
   CONFIG.waveTypeA = keys[Math.floor(Math.random() * keys.length)];
   CONFIG.waveTypeB = keys[Math.floor(Math.random() * keys.length)];
+  CONFIG.waveMix = Math.random();
 
   rebuildField();
   if (refreshUI) refreshUI();
 }
 
 function randomizeAll() {
-  randomizeModes({ rebuild: false, refresh: false });
+  // Fixed: your original call used parameters that randomizeModes() doesn't accept.
+  randomizeModes();
   randomizeWaves();
   if (refreshUI) refreshUI();
 }
