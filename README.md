@@ -70,3 +70,9 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 - **Mouse drag:** Pan  
 - **Double click:** Reset view  
 - **R key:** Randomize modes and waves
+
+## Wave Functions
+
+![wave-functions](https://github.com/user-attachments/assets/cf0a15f9-650d-4795-9d3c-2c4fca027ce9)
+
+
