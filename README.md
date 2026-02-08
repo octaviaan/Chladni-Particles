@@ -1,57 +1,72 @@
 # Chladni Particle Flow
-Generative art simulation built with **Three.js**. This project simulates Chladni figures (nodal patterns formed on vibrating plates) using a particle system that reacts to a computed energy field.
-Instead of calculating simple 2D lines, it generates a "terrain" of standing waves. Millions of particles flow downhill (via gradient descent) to settle in the "valleys" (nodes) where vibration is lowest.
+
+Generative art simulation built with Three.js. This project simulates Chladni figures (nodal patterns formed on vibrating plates) using a particle system that reacts to a computed energy field. Instead of drawing explicit 2D contour lines, it generates an interference “terrain” from blended wave functions. Particles flow downhill (via gradient descent) and settle into low-energy valleys (nodes).
 
 ## ✨ Key Features
-* **Particle System:** Renders up to ~1.3 million particles using `THREE.Points` and low-level `Float32Array`.
-* **Dual-Wave Synthesis:** Blends two distinct wave algorithms (Type A and Type B) with adjustable mixing to create hybrid geometries.
-* **25+ Wave Algorithms:** Includes classic Cartesian/Radial waves, plus exotic types like Gyroid, Quasicrystal, Voronoi, Perlin Noise, and Bessel functions.
-* **Physics Simulation:** Particles exhibit Brownian motion (jitter), drag, and momentum, giving the visual an organic, fluid-like behavior.
-* **High-Res Export:** Export high-resolution (up to 8k) PNG snapshots with optional transparency.
-* **Tweakpane Integration:** Full GUI control over physics, wave modes, colors, and camera settings.
 
-## 🚀 Installation & Usage
-* [Three.js](https://threejs.org/)
-* [Tweakpane](https://tweakpane.github.io/docs/)
-### Physics & Performance
+- **Particle System:** Renders a dense particle field using `THREE.Points` backed by low-level `Float32Array` buffers (positions, velocities, colors).
+- **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) plus a spatially varying mask for hybrid geometries.
+- **25+ Wave Algorithms:** Includes classic Cartesian/Radial waves plus stylized variants like Gyroid, Quasicrystal, Voronoi, Hexagonal, Lattice, RingInterference, Wallpaper, and more.
+- **Spatial Mix Noise:** Uses lightweight 2D value noise to modulate where Type A vs Type B dominates (`spatialMixNoise`).
+- **Physics Simulation:** Particles include Brownian motion (jitter), drag, momentum, and a speed clamp for stable, organic motion.
+- **High-Res Export:** Save PNG snapshots with optional transparent background; export sizing is configurable (UI supports up to 9000px base width).
+- **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `particleCount` | `int` | `400,000` | The total number of particles in the simulation. Higher numbers create denser lines but require more GPU power. |
-| `gridSize` | `int` | `512` | The resolution of the underlying energy grid. Higher values result in smoother curves but slower recalculations when wave settings change. |
-| `settleStrength` | `float` | `1.5` | How strongly particles are pulled toward nodal lines. Higher values make lines form instantly; lower values create a "drifting" effect. |
-| `jitter` | `float` | `0.1` | Adds random Brownian motion to particles. Keeps them "alive" and prevents them from getting stuck in local minima. |
-| `drag` | `float` | `0.85` | Friction applied to particle velocity. Determines how quickly particles lose momentum. |
+## Installation & Usage
 
-### Wave & Math Generation
+- Three.js
+- Tweakpane
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `waveTypeA/B` | `string` | `Cartesian` | The mathematical algorithms used to generate the field (e.g., "Radial", "Hexagonal", "Voronoi"). |
-| `waveMix` | `float` | `0.5` | Blends between Wave Type A (0.0) and Wave Type B (1.0). |
-| `modeCount` | `int` | `4` | The number of overlapping wave layers (harmonics) used to generate the interference pattern. |
-| `mMin` / `mMax` | `float` | `2` - `12` | The frequency range for the primary wave axis. Higher values create more complex, tighter patterns. |
-| `nMin` / `nMax` | `float` | `2` - `12` | The frequency range for the secondary wave axis. |
+Run with any local server (recommended) and open `index.html`.
 
-### Visuals & Camera
+## Physics & Performance
 
-| Parameter | Type | Default | Description |
-| --- | --- | --- | --- |
-| `color` | `hex` | `#72dcff` | The tint color of the particles. |
-| `viewScale` | `int` | `800` | The coordinate bounds of the world. Increases the "zoom out" factor of the simulation space. |
-| `exportBaseSize` | `int` | `2048` | The base width (in pixels) for image export. |
+| Parameter         | Type    | Default    | Description |
+|------------------|---------|------------|-------------|
+| `particleCount`  | `int`   | `300000`   | Total number of particles. Higher values create denser patterns but require more CPU/GPU bandwidth. |
+| `gridSize`       | `int`   | `256`      | Resolution of the underlying energy grid. Higher values produce smoother gradients but slower field rebuilds. Not in the GUI |
+| `settleStrength` | `float` | `2.0`      | Strength of the gradient-descent pull (how quickly particles lock into valleys). |
+| `jitter`         | `float` | `0.1`      | Random Brownian motion added each frame to keep motion alive and avoid local sticking. |
+| `drag`           | `float` | `0.85`     | Velocity damping (friction). Higher = faster settling, lower = more drift. |
+| `speedLimit`     | `float` | `2.0`      | Caps particle speed for stability and cleaner lines. |
 
-## 🕹️ Controls (GUI)
+## Wave & Math Generation
+
+| Parameter                 | Type      | Default                 | Description |
+|--------------------------|-----------|-------------------------|-------------|
+| `waveTypeA` / `waveTypeB`| `string`  | `Cartesian` / `Radial`  | Wave algorithms used to generate the field. |
+| `waveMix`                | `float`   | `0.5`                   | Global blend between Type A (0.0) and Type B (1.0). |
+| `spatialMixNoise`        | `float`   | `0.35`                  | Controls how much the blend mask is influenced by value noise vs radial distance. |
+| `fieldScale`             | `float`   | `1.0`                   | Scales the coordinate domain used when evaluating wave functions. |
+| `modeCount`              | `int`     | `4`                     | Number of overlapping mode layers used in field construction. |
+| `mRange` / `nRange`      | `object`  | `{2→4}` / `{4→8}`       | Frequency ranges used to generate per-mode parameters (`m`, `n`). |
+| `integerModes`           | `boolean` | `true`                  | Quantizes `m`/`n` to integers (classic mode stepping). Not in the GUI. |
+
+## Visuals & Camera
+
+| Parameter          | Type    | Default     | Description |
+|-------------------|---------|-------------|-------------|
+| `color`           | `hex`   | `#b3a79b`   | Particle color tint. |
+| `particleSize`    | `float` | `2.0`       | Point size (screen-space). |
+| `particleOpacity` | `float` | `1.0`       | Material opacity. Not in the GUI. |
+| `viewScale`       | `int`   | `600`       | World coordinate bounds used for the simulation space and camera framing. Not in the GUI |
+| `exportBaseSize`  | `int`   | `3000`      | Base export width in pixels (height derived from aspect). |
+| `rectAspect`      | `float` | `1`         | Export aspect ratio (1 = square, 1.78 ≈ landscape). |
+| `exportOpaque`    | `bool`  | `false`     | When false, export uses a transparent background. |
+
+## Controls (GUI)
 
 A Tweakpane UI is generated automatically on launch with the following folders:
 
-1. **Particles:** Adjust count, size, and color.
-2. **Motion:** Fine-tune the physics (speed, drag, jitter).
-3. **Waves:** Select algorithms (Type A/B) and mix ratio.
-4. **Modes:** Control the complexity (frequency ranges) and randomness of the wave layers.
-5. **Capture:** Camera controls (Pan/Zoom) and **Save Image** button.
-4. **Particle Update Loop:**
-* Particles check their position against the grid.
-* Bilinear interpolation retrieves the precise gradient at that location.
-* Velocity is updated to move the particle *down* the gradient (towards 0 energy).
-* Jitter and Drag are applied to simulate fluid dynamics.
+1. **Particles:** Adjust count, size, and color (count change rebuilds buffers).
+2. **Motion:** Fine-tune physics (settle strength, drag, jitter, speed limit).
+3. **Waves:** Select algorithms (Type A/B), mix ratio, noise, and field scale.
+4. **Modes:** Control complexity (`modeCount`, `mRange`, `nRange`, integer quantization).
+5. **Capture:** Aspect, export size, background transparency, camera pan/zoom, and export buttons.
+
+### Mouse & Keyboard
+
+- **Mouse wheel:** Zoom  
+- **Mouse drag:** Pan  
+- **Double click:** Reset view  
+- **R key:** Randomize modes and waves
