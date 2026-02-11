@@ -2,7 +2,7 @@
 
 Generative art simulation built with Three.js. This project simulates Chladni figures (nodal patterns formed on vibrating plates) using a particle system that reacts to a computed energy field. Instead of drawing explicit 2D contour lines, it generates an interference “terrain” from blended wave functions. Particles flow downhill (via gradient descent) and settle into low-energy valleys (nodes).
 
-## ✨ Key Features
+## Key Features
 
 - **Particle System:** Renders a dense particle field using `THREE.Points` backed by low-level `Float32Array` buffers (positions, velocities, colors).
 - **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) plus a spatially varying mask for hybrid geometries.
@@ -12,11 +12,16 @@ Generative art simulation built with Three.js. This project simulates Chladni fi
 - **High-Res Export:** Save PNG snapshots with optional transparent background; export sizing is configurable (UI supports up to 9000px base width).
 - **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
 
+
+## Examples
+
+![fav](https://github.com/user-attachments/assets/e28b23bc-3a86-4206-b639-8119bf60b763)
+
+
 ## Installation & Usage
 
 - Three.js
 - Tweakpane
-
 Run with any local server (recommended) and open `index.html`.
 
 ## Physics & Performance
