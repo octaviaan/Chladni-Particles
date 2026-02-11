@@ -76,3 +76,9 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 ![wave-functions](https://github.com/user-attachments/assets/cf0a15f9-650d-4795-9d3c-2c4fca027ce9)
 
 
+## Wave Mixing Examples
+
+![Frame 119](https://github.com/user-attachments/assets/d5492f8f-a354-45d2-8fdc-333ddbb8056d)
+
+
+
