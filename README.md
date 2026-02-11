@@ -1,6 +1,7 @@
 # Chladni Particle Flow
 
 Generative art simulation built with Three.js. This project simulates Chladni figures (nodal patterns formed on vibrating plates) using a particle system that reacts to a computed energy field. Instead of drawing explicit 2D contour lines, it generates an interference “terrain” from blended wave functions. Particles flow downhill (via gradient descent) and settle into low-energy valleys (nodes).
+## [> Test it out](https://octaviaan.github.io/Chladni-Particles/)
 
 ## Key Features
 
@@ -84,6 +85,4 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 ## Wave Mixing Examples
 
 ![Frame 119](https://github.com/user-attachments/assets/d5492f8f-a354-45d2-8fdc-333ddbb8056d)
-
-
 
