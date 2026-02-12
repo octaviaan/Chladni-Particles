@@ -5,7 +5,7 @@ import * as EssentialsPlugin from "tweakpane-plugin-essentials";
 // --- Configuration ---
 const CONFIG = {
   particleCount: 300000,
-  gridSize: 128,
+  gridSize: 256,
   settleStrength: 4.0,
   jitter: 0.1,
   drag: 0.85,
@@ -29,7 +29,7 @@ const CONFIG = {
   waveTypeA: "Cartesian",
   waveTypeB: "Radial",
   waveMix: 0.5,
-  spatialMixNoise: 0.5,
+  phaseJitter: 1.0,
 
   integerModes: false,
 };
@@ -41,22 +41,6 @@ const smoothstep = (t) => t * t * (3 - 2 * t);
 const hash2 = (x, y) => {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
   return s - Math.floor(s);
-};
-
-const valueNoise = (x, y) => {
-  const x0 = Math.floor(x);
-  const y0 = Math.floor(y);
-  const x1 = x0 + 1;
-  const y1 = y0 + 1;
-  const sx = smoothstep(x - x0);
-  const sy = smoothstep(y - y0);
-  const n00 = hash2(x0, y0) * 2 - 1;
-  const n10 = hash2(x1, y0) * 2 - 1;
-  const n01 = hash2(x0, y1) * 2 - 1;
-  const n11 = hash2(x1, y1) * 2 - 1;
-  const ix0 = lerp(n00, n10, sx);
-  const ix1 = lerp(n01, n11, sx);
-  return lerp(ix0, ix1, sy);
 };
 
 // --- Wave Strategy Definitions ---
@@ -453,7 +437,6 @@ function rebuildField() {
   const baseBias = CONFIG.waveMix - 0.5;
   const fieldScale = Math.max(0.05, CONFIG.fieldScale || 1);
   const maxR = Math.SQRT1_2 * fieldScale;
-  const spatialMixScale = 3.0;
 
   for (let y = 0; y < G; y++) {
     for (let x = 0; x < G; x++) {
@@ -466,11 +449,7 @@ function rebuildField() {
       let phi = 0;
       const r = Math.sqrt(cx * cx + cy * cy);
       const rn = clamp(r / maxR, 0, 1);
-      const noiseWeight = smoothstep(CONFIG.spatialMixNoise);
-      const noiseRange = lerp(1.0, 2.0, CONFIG.spatialMixNoise);
-      const noiseRaw = valueNoise(cx * spatialMixScale, cy * spatialMixScale);
-      const noise = clamp(0.5 + 0.5 * noiseRaw * noiseRange, 0, 1);
-      const mixed = (1 - noiseWeight) * rn + noiseWeight * noise + baseBias;
+      const mixed = rn + baseBias;
       const spatialMix = smoothstep(clamp(mixed, 0, 1));
 
       for (let k = 0; k < modes.length; k++) {
@@ -629,6 +608,11 @@ function modeValueAt(index, count, min, max, flip = false) {
   return min + (max - min) * u;
 }
 
+function randomPhaseOffset() {
+  const phaseRange = Math.max(0, CONFIG.phaseJitter) * Math.PI * 2;
+  return (Math.random() - 0.5) * phaseRange;
+}
+
 function randomizeModes() {
   const maxModes = 12;
   CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
@@ -671,8 +655,8 @@ function initModes() {
       m: quantizeModeValue(mRaw),
       n: quantizeModeValue(nRaw),
       a: Math.exp(-i * 0.35),
-      px: 0,
-      py: 0,
+      px: randomPhaseOffset(),
+      py: randomPhaseOffset(),
       cos: 1,
       sin: 0,
     });
@@ -883,7 +867,7 @@ function setupGUI() {
     particlesFolder
       .addBinding(CONFIG, "particleCount", {
         min: 50000,
-        max: 500000,
+        max: 1500000,
         step: 10000,
         label: "Count",
       })
@@ -906,34 +890,32 @@ function setupGUI() {
       .addBinding(CONFIG, "color", { label: "Color" })
       .on("change", (ev) => applyParticleColor(ev.value)),
   );
-  particlesFolder
-    .addButton({ title: "Rebuild particles" })
-    .on("click", () => rebuildParticles());
-
   const motionFolder = pane.addFolder({ title: "Motion" });
   inputs.push(
     motionFolder.addBinding(CONFIG, "settleStrength", {
       min: 0.5,
       max: 10.0,
       step: 0.1,
-    }),
+    }).on("change", () => rebuildParticles()),
   );
   inputs.push(
     motionFolder.addBinding(CONFIG, "jitter", {
       min: 0.0,
       max: 0.3,
       step: 0.01,
-    }),
+    }).on("change", () => rebuildParticles()),
   );
   inputs.push(
-    motionFolder.addBinding(CONFIG, "drag", { min: 0.7, max: 0.9, step: 0.01 }),
+    motionFolder
+      .addBinding(CONFIG, "drag", { min: 0.7, max: 0.9, step: 0.01 })
+      .on("change", () => rebuildParticles()),
   );
   inputs.push(
     motionFolder.addBinding(CONFIG, "speedLimit", {
       min: 0.2,
       max: 3.0,
       step: 0.1,
-    }),
+    }).on("change", () => rebuildParticles()),
   );
 
   const wavesFolder = pane.addFolder({ title: "Waves" });
@@ -943,7 +925,10 @@ function setupGUI() {
         options: waveTypeOptions,
         label: "Wave A",
       })
-      .on("change", () => rebuildField()),
+      .on("change", () => {
+        rebuildField();
+        rebuildParticles();
+      }),
   );
   inputs.push(
     wavesFolder
@@ -951,7 +936,10 @@ function setupGUI() {
         options: waveTypeOptions,
         label: "Wave B",
       })
-      .on("change", () => rebuildField()),
+      .on("change", () => {
+        rebuildField();
+        rebuildParticles();
+      }),
   );
   inputs.push(
     wavesFolder
@@ -961,7 +949,10 @@ function setupGUI() {
         step: 0.01,
         label: "Mix",
       })
-      .on("change", () => rebuildField()),
+      .on("change", () => {
+        rebuildField();
+        rebuildParticles();
+      }),
   );
   inputs.push(
     wavesFolder
@@ -971,32 +962,61 @@ function setupGUI() {
         step: 0.1,
         label: "Field scale",
       })
-      .on("change", () => rebuildField()),
+      .on("change", () => {
+        rebuildField();
+        rebuildParticles();
+      }),
   );
   wavesFolder
     .addButton({ title: "Randomize waves" })
-    .on("click", () => randomizeWaves());
+    .on("click", () => {
+      randomizeWaves();
+      rebuildParticles();
+    });
 
   const modesFolder = pane.addFolder({ title: "Modes" });
   inputs.push(
     modesFolder
       .addBinding(CONFIG, "modeCount", { min: 1, max: 10, step: 1 })
       .on("change", () => {
-        if (!suppressUIEvents) rebuildModesFromConfig();
+        if (!suppressUIEvents) {
+          rebuildModesFromConfig();
+          rebuildParticles();
+        }
       }),
   );
   inputs.push(
     modesFolder
       .addBinding(CONFIG, "mRange", { min: 1, max: 10, step: 0.1 })
       .on("change", () => {
-        if (!suppressUIEvents) rebuildModesFromConfig();
+        if (!suppressUIEvents) {
+          rebuildModesFromConfig();
+          rebuildParticles();
+        }
       }),
   );
   inputs.push(
     modesFolder
       .addBinding(CONFIG, "nRange", { min: 1, max: 10, step: 0.1 })
       .on("change", () => {
-        if (!suppressUIEvents) rebuildModesFromConfig();
+        if (!suppressUIEvents) {
+          rebuildModesFromConfig();
+          rebuildParticles();
+        }
+      }),
+  );
+  inputs.push(
+    modesFolder
+      .addBinding(CONFIG, "phaseJitter", {
+        min: 0,
+        max: 1,
+        step: 0.01,
+      })
+      .on("change", () => {
+        if (!suppressUIEvents) {
+          rebuildModesFromConfig();
+          rebuildParticles();
+        }
       }),
   );
 
@@ -1006,7 +1026,7 @@ function setupGUI() {
       min: 1024,
       max: 7168,
       step: 512,
-    }),
+    }).on("change", () => rebuildParticles()),
   );
   inputs.push(
     captureFolder

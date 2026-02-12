@@ -8,7 +8,6 @@ Generative art simulation built with Three.js. This project simulates Chladni fi
 - **Particle System:** Renders a particle field using `THREE.Points` backed by low-level `Float32Array` buffers.
 - **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) plus a spatially varying mask for hybrid geometries.
 - **25+ Wave Algorithms:** Includes classic Cartesian/Radial waves plus stylized variants like Gyroid, Quasicrystal, Voronoi, Hexagonal, Lattice, RingInterference, Wallpaper, and more.
-- **Spatial Mix Noise:** Uses lightweight 2D value noise to modulate where Type A vs Type B dominates (`spatialMixNoise`).
 - **Physics Simulation:** Particles include Brownian motion (jitter), drag, momentum, and a speed clamp for stable, organic motion.
 - **High-Res Export:** Save PNG snapshots with optional transparent background.
 - **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
@@ -42,7 +41,6 @@ Run with any local server (recommended) and open `index.html`.
 | ------------------------- | --------- | ---------------------- | --------------------------------------------------------------------------------- |
 | `waveTypeA` / `waveTypeB` | `string`  | `Cartesian` / `Radial` | Wave algorithms used to generate the field.                                       |
 | `waveMix`                 | `float`   | `0.5`                  | Global blend between Type A (0.0) and Type B (1.0).                               |
-| `spatialMixNoise`         | `float`   | `0.35`                 | Controls how much the blend mask is influenced by value noise vs radial distance. |
 | `fieldScale`              | `float`   | `1.0`                  | Scales the coordinate domain used when evaluating wave functions.                 |
 | `modeCount`               | `int`     | `4`                    | Number of overlapping mode layers used in field construction.                     |
 | `mRange` / `nRange`       | `object`  | `{2→4}` / `{4→8}`      | Frequency ranges used to generate per-mode parameters (`m`, `n`).                 |
