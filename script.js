@@ -5,33 +5,33 @@ import * as EssentialsPlugin from "tweakpane-plugin-essentials";
 // --- Configuration ---
 const CONFIG = {
   particleCount: 300000,
-  gridSize: 256,
-  settleStrength: 2.0,
+  gridSize: 128,
+  settleStrength: 4.0,
   jitter: 0.1,
   drag: 0.85,
   speedLimit: 2.0,
   viewScale: 600,
   color: "#b3a79b",
-  particleSize: 2.0,
+  particleSize: 3.0,
   particleOpacity: 1.0,
-  cameraControl: { x: 0, y: 0, z: 1 },
-  cameraDefault: { x: 0, y: 0, z: 1 },
-  exportBaseSize: 3000,
+  cameraControl: { x: 0, y: 0, z: 1.5 },
+  cameraDefault: { x: 0, y: 0, z: 1.5 },
+  exportBaseSize: 2048,
   exportOpaque: false,
 
   modeCount: 4,
   mRange: { min: 2, max: 4 },
   nRange: { min: 4, max: 8 },
 
-  rectAspect: 1,
+  rectAspect: 1.78,
   fieldScale: 1.0,
 
   waveTypeA: "Cartesian",
   waveTypeB: "Radial",
   waveMix: 0.5,
-  spatialMixNoise: 0.35,
+  spatialMixNoise: 0.5,
 
-  integerModes: true,
+  integerModes: false,
 };
 
 // --- Math Helpers ---
@@ -306,6 +306,8 @@ const WAVE_FUNCTIONS = {
 };
 
 const WAVE_TYPE_KEYS = Object.keys(WAVE_FUNCTIONS);
+const ACCENT_COLOR = new THREE.Color("#02E2AC");
+const ACCENT_COLOR_RATIO = 0.1;
 
 // --- Global Variables ---
 let scene, camera, renderer, geometry, points;
@@ -411,9 +413,11 @@ function buildParticles() {
     velocities[i * 2 + 0] = 0;
     velocities[i * 2 + 1] = 0;
 
-    colors[i * 3 + 0] = baseColor.r;
-    colors[i * 3 + 1] = baseColor.g;
-    colors[i * 3 + 2] = baseColor.b;
+    const particleColor =
+      Math.random() < ACCENT_COLOR_RATIO ? ACCENT_COLOR : baseColor;
+    colors[i * 3 + 0] = particleColor.r;
+    colors[i * 3 + 1] = particleColor.g;
+    colors[i * 3 + 2] = particleColor.b;
   }
 
   geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
@@ -433,9 +437,11 @@ function applyParticleColor(hex) {
   const count = CONFIG.particleCount;
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
-    colors[i3] = nextColor.r;
-    colors[i3 + 1] = nextColor.g;
-    colors[i3 + 2] = nextColor.b;
+    const particleColor =
+      Math.random() < ACCENT_COLOR_RATIO ? ACCENT_COLOR : nextColor;
+    colors[i3] = particleColor.r;
+    colors[i3 + 1] = particleColor.g;
+    colors[i3 + 2] = particleColor.b;
   }
   geometry.attributes.color.needsUpdate = true;
 }
@@ -959,19 +965,9 @@ function setupGUI() {
   );
   inputs.push(
     wavesFolder
-      .addBinding(CONFIG, "spatialMixNoise", {
-        min: 0.0,
-        max: 1.0,
-        step: 0.01,
-        label: "Noise",
-      })
-      .on("change", () => rebuildField()),
-  );
-  inputs.push(
-    wavesFolder
       .addBinding(CONFIG, "fieldScale", {
         min: 0.5,
-        max: 5.0,
+        max: 2.0,
         step: 0.1,
         label: "Field scale",
       })
@@ -1007,9 +1003,9 @@ function setupGUI() {
   const captureFolder = pane.addFolder({ title: "Capture" });
   inputs.push(
     captureFolder.addBinding(CONFIG, "exportBaseSize", {
-      min: 1000,
-      max: 9000,
-      step: 500,
+      min: 1024,
+      max: 7168,
+      step: 512,
     }),
   );
   inputs.push(
@@ -1039,7 +1035,7 @@ function setupGUI() {
       .addBinding(CONFIG, "cameraControl", {
         x: { min: -CONFIG.viewScale, max: CONFIG.viewScale },
         y: { min: -CONFIG.viewScale, max: CONFIG.viewScale },
-        z: { min: 0.5, max: 10 },
+        z: { min: 0.5, max: 10, step: 0.1 },
       })
       .on("change", (ev) => applyCameraFromControl(ev.value)),
   );
@@ -1133,8 +1129,9 @@ function randomizeWaves() {
 }
 
 function randomizeAll() {
-  // Fixed: your original call used parameters that randomizeModes() doesn't accept.
   randomizeModes();
+  CONFIG.waveMix = Math.round(Math.random() * 100) / 100;
+  CONFIG.fieldScale = Math.round((0.5 + Math.random() * 4.5) * 10) / 10;
   randomizeWaves();
   if (refreshUI) refreshUI();
 }

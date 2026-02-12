@@ -55,7 +55,7 @@ Run with any local server (recommended) and open `index.html`.
 | `color`          | `hex`   | `#b3a79b` | Particle color tint.                                      |
 | `particleSize`   | `float` | `2.0`     | Point size (screen-space).                                |
 | `exportBaseSize` | `int`   | `3000`    | Base export width in pixels (height derived from aspect). |
-| `rectAspect`     | `float` | `1`       | Export aspect ratio (1 = square, 1.78 ≈ landscape).       |
+| `rectAspect`     | `float` | `1.78`    | Export aspect ratio (1 = square, 1.78 ≈ landscape).       |
 | `exportOpaque`   | `bool`  | `false`   | When false, export uses a transparent background.         |
 
 ## Controls (GUI)
@@ -83,4 +83,3 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 ## Wave Mixing Examples
 
 ![Frame 119](https://github.com/user-attachments/assets/d5492f8f-a354-45d2-8fdc-333ddbb8056d)
-
