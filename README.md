@@ -1,8 +1,9 @@
 # Chladni Particle Flow
 
 Generative art simulation built with Three.js. This project simulates Chladni figures (nodal patterns formed on vibrating plates) using a particle system that reacts to a computed energy field. Instead of drawing explicit 2D contour lines, it generates an interference “terrain” from blended wave functions. Particles flow downhill (via gradient descent) and settle into low-energy valleys (nodes).
+## [> Test it out](https://octaviaan.github.io/Chladni-Particles/)
 
-## ✨ Key Features
+## Key Features
 
 - **Particle System:** Renders a particle field using `THREE.Points` backed by low-level `Float32Array` buffers.
 - **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) plus a spatially varying mask for hybrid geometries.
@@ -11,6 +12,18 @@ Generative art simulation built with Three.js. This project simulates Chladni fi
 - **Physics Simulation:** Particles include Brownian motion (jitter), drag, momentum, and a speed clamp for stable, organic motion.
 - **High-Res Export:** Save PNG snapshots with optional transparent background.
 - **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
+
+
+## Examples
+
+![fav](https://github.com/user-attachments/assets/e28b23bc-3a86-4206-b639-8119bf60b763)
+
+
+## Installation & Usage
+
+- Three.js
+- Tweakpane
+Run with any local server (recommended) and open `index.html`.
 
 ## Physics & Performance
 
@@ -65,3 +78,9 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 ## Wave Functions
 
 ![wave-functions](https://github.com/user-attachments/assets/cf0a15f9-650d-4795-9d3c-2c4fca027ce9)
+
+
+## Wave Mixing Examples
+
+![Frame 119](https://github.com/user-attachments/assets/d5492f8f-a354-45d2-8fdc-333ddbb8056d)
+
