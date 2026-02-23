@@ -9,6 +9,7 @@ Generative art simulation built with Three.js. This project simulates Chladni fi
 - **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) plus a spatially varying mask for hybrid geometries.
 - **25+ Wave Algorithms:** Includes classic Cartesian/Radial waves plus stylized variants like Gyroid, Quasicrystal, Voronoi, Hexagonal, Lattice, RingInterference, Wallpaper, and more.
 - **Physics Simulation:** Particles include Brownian motion (jitter), drag, momentum, and a speed clamp for stable, organic motion.
+- **Logo Integration Mode:** Upload a logo (transparent PNG recommended) and map particles to fill or outline targets with alpha/luminance extraction.
 - **High-Res Export:** Save PNG snapshots with optional transparent background.
 - **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
 
@@ -63,8 +64,9 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 1. **Particles:** Adjust count, size, and color (count change rebuilds buffers).
 2. **Motion:** Fine-tune physics (settle strength, drag, jitter, speed limit).
 3. **Waves:** Select algorithms (Type A/B), mix ratio, noise, and field scale.
-4. **Modes:** Control complexity (`modeCount`, `mRange`, `nRange`, integer quantization).
-5. **Capture:** Aspect, export size, background transparency, camera pan/zoom, and export buttons.
+4. **Logo:** Upload/clear logo targets, snap particles to the logo, and tune force mode (`Logo Only`/`Blend`), separate `Logo count`, `Logo size`, `Logo opacity`, `Logo color`, luminance thresholding, style (`Fill`/`Outline`), and scale.
+5. **Modes:** Control complexity (`modeCount`, `mRange`, `nRange`, integer quantization).
+6. **Capture:** Aspect, export size, background transparency, camera pan/zoom, and export buttons.
 
 ### Mouse & Keyboard
 

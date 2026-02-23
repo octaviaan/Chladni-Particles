@@ -1,41 +1,52 @@
 import * as THREE from "three";
 import { Pane } from "tweakpane";
 import * as EssentialsPlugin from "tweakpane-plugin-essentials";
+import * as InfodumpPlugin from "tweakpane-plugin-infodump";
 
 // --- Configuration ---
 const CONFIG = {
-  particleCount: 300000,
+  particleCount: 500000,
   gridSize: 256,
-  settleStrength: 4.0,
-  jitter: 0.1,
+  settleStrength: 5.0,
+  jitter: 0.07,
   drag: 0.85,
   speedLimit: 2.0,
-  viewScale: 600,
-  color: "#b3a79b",
-  particleSize: 3.0,
-  particleOpacity: 1.0,
+  viewScale: 500,
+  color: "#4f4030",
+  particleSize: 2.0,
+  particleOpacity: 0.6,
   cameraControl: { x: 0, y: 0, z: 1.5 },
   cameraDefault: { x: 0, y: 0, z: 1.5 },
   exportBaseSize: 2048,
   exportOpaque: false,
 
-  modeCount: 4,
-  mRange: { min: 2, max: 4 },
-  nRange: { min: 4, max: 8 },
+  modeCount: 6,
+  mRange: { min: 2, max: 6 },
+  nRange: { min: 4, max: 10 },
 
   rectAspect: 1.78,
-  fieldScale: 1.0,
+  fieldScale: 0.4,
 
   waveTypeA: "Cartesian",
-  waveTypeB: "Radial",
+  waveTypeB: "Gyroid",
   waveMix: 0.5,
-  phaseJitter: 1.0,
+  phaseJitter: 0.69,
 
   integerModes: false,
+
+  imageMode: false,
+  imageBlend: 1.0,
+  imageStyle: "Fill",
+  imageThreshold: 0.7,
+  imageInvert: false,
+  imageScale: 0.7,
+  logoParticleCount: 50000,
+  logoParticleSize: 2.0,
+  logoParticleOpacity: 0.85,
+  logoColor: "#ffffff",
 };
 
 // --- Math Helpers ---
-const lerp = (a, b, t) => a + (b - a) * t;
 const smoothstep = (t) => t * t * (3 - 2 * t);
 
 const hash2 = (x, y) => {
@@ -292,14 +303,22 @@ const WAVE_FUNCTIONS = {
 const WAVE_TYPE_KEYS = Object.keys(WAVE_FUNCTIONS);
 const ACCENT_COLOR = new THREE.Color("#02E2AC");
 const ACCENT_COLOR_RATIO = 0.1;
+const YELLOW_COLOR = new THREE.Color("#ffe997");
+const YELLOW_COLOR_RATIO = 0.05;
+const IMAGE_ATTRACT_STRENGTH = 0.03;
 
 // --- Global Variables ---
-let scene, camera, renderer, geometry, points;
-let positions, velocities, colors;
+let scene, camera, renderer, geometry, points, logoGeometry, logoPoints;
+let positions, velocities, colors, logoPositions, logoVelocities;
 let refreshUI = null;
 let suppressUIEvents = false;
+let pane;
 let isPanning = false;
 let lastPointer = { x: 0, y: 0 };
+let imageFileInput = null;
+let imageSource = null;
+let imagePointCloud = null;
+let imageTargets = null;
 
 // Field Data
 let energy;
@@ -343,6 +362,7 @@ function init() {
   document.body.appendChild(renderer.domElement);
 
   buildParticles();
+  buildLogoParticles();
 
   const sprite = new THREE.TextureLoader().load(
     "https://threejs.org/examples/textures/sprites/disc.png",
@@ -363,6 +383,24 @@ function init() {
 
   points = new THREE.Points(geometry, material);
   scene.add(points);
+
+  const logoMaterial = new THREE.PointsMaterial({
+    color: CONFIG.logoColor,
+    size: CONFIG.logoParticleSize,
+    map: sprite,
+    alphaTest: 0.0,
+    transparent: true,
+    opacity: CONFIG.logoParticleOpacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+    sizeAttenuation: false,
+  });
+
+  logoPoints = new THREE.Points(logoGeometry, logoMaterial);
+  logoPoints.visible = false;
+  logoPoints.renderOrder = 10;
+  scene.add(logoPoints);
 
   window.addEventListener("resize", onWindowResize);
   setupMouseControls();
@@ -388,8 +426,12 @@ function buildParticles() {
 
   const baseColor = new THREE.Color(CONFIG.color);
 
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
   for (let i = 0; i < CONFIG.particleCount; i++) {
-    const [x, y] = randomPointInShape();
+    const x = (Math.random() - 0.5) * 2 * range;
+    const y = (Math.random() - 0.5) * 2 * rectRy;
     positions[i * 3 + 0] = x;
     positions[i * 3 + 1] = y;
     positions[i * 3 + 2] = 0;
@@ -397,8 +439,13 @@ function buildParticles() {
     velocities[i * 2 + 0] = 0;
     velocities[i * 2 + 1] = 0;
 
+    const colorRoll = Math.random();
     const particleColor =
-      Math.random() < ACCENT_COLOR_RATIO ? ACCENT_COLOR : baseColor;
+      colorRoll < YELLOW_COLOR_RATIO
+        ? YELLOW_COLOR
+        : colorRoll < YELLOW_COLOR_RATIO + ACCENT_COLOR_RATIO
+          ? ACCENT_COLOR
+          : baseColor;
     colors[i * 3 + 0] = particleColor.r;
     colors[i * 3 + 1] = particleColor.g;
     colors[i * 3 + 2] = particleColor.b;
@@ -408,11 +455,80 @@ function buildParticles() {
   geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
 }
 
+function buildLogoParticles() {
+  logoGeometry = new THREE.BufferGeometry();
+
+  const logoCount = Math.max(1, Math.round(CONFIG.logoParticleCount));
+  logoPositions = new Float32Array(logoCount * 3);
+  logoVelocities = new Float32Array(logoCount * 2);
+
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
+  for (let i = 0; i < logoCount; i++) {
+    const x = (Math.random() - 0.5) * 2 * range;
+    const y = (Math.random() - 0.5) * 2 * rectRy;
+    logoPositions[i * 3 + 0] = x;
+    logoPositions[i * 3 + 1] = y;
+    logoPositions[i * 3 + 2] = 0;
+
+    logoVelocities[i * 2 + 0] = 0;
+    logoVelocities[i * 2 + 1] = 0;
+  }
+
+  logoGeometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(logoPositions, 3),
+  );
+}
+
 function rebuildParticles() {
   const oldGeometry = points.geometry;
   buildParticles();
   points.geometry = geometry;
   oldGeometry.dispose();
+  applyParticleColor(CONFIG.color);
+}
+
+function resetParticles() {
+  if (!positions || !velocities || !geometry?.attributes?.position) return;
+
+  const count = Math.min(
+    CONFIG.particleCount,
+    Math.floor(positions.length / 3),
+    Math.floor(velocities.length / 2),
+  );
+
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const i2 = i * 2;
+    const x = (Math.random() - 0.5) * 2 * range;
+    const y = (Math.random() - 0.5) * 2 * rectRy;
+    positions[i3] = x;
+    positions[i3 + 1] = y;
+    positions[i3 + 2] = 0;
+    velocities[i2] = 0;
+    velocities[i2 + 1] = 0;
+  }
+
+  geometry.attributes.position.needsUpdate = true;
+}
+
+function rebuildLogoParticles() {
+  if (!logoPoints) return;
+  const oldGeometry = logoPoints.geometry;
+  buildLogoParticles();
+  logoPoints.geometry = logoGeometry;
+  if (oldGeometry) oldGeometry.dispose();
+
+  if (imagePointCloud) {
+    rebuildImageTargets();
+    if (CONFIG.imageMode) snapParticlesToImage();
+  }
+  syncLogoVisibility();
 }
 
 function applyParticleColor(hex) {
@@ -421,13 +537,32 @@ function applyParticleColor(hex) {
   const count = CONFIG.particleCount;
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
+    const colorRoll = Math.random();
     const particleColor =
-      Math.random() < ACCENT_COLOR_RATIO ? ACCENT_COLOR : nextColor;
+      colorRoll < YELLOW_COLOR_RATIO
+        ? YELLOW_COLOR
+        : colorRoll < YELLOW_COLOR_RATIO + ACCENT_COLOR_RATIO
+          ? ACCENT_COLOR
+          : nextColor;
     colors[i3] = particleColor.r;
     colors[i3 + 1] = particleColor.g;
     colors[i3 + 2] = particleColor.b;
   }
   geometry.attributes.color.needsUpdate = true;
+}
+
+function applyLogoColor(hex) {
+  if (!logoPoints?.material) return;
+  logoPoints.material.color.set(hex);
+}
+
+function syncLogoVisibility() {
+  if (!logoPoints) return;
+  const logoCount = logoVelocities ? logoVelocities.length / 2 : 0;
+  const hasTargets =
+    imageTargets && logoCount > 0 && imageTargets.length === logoCount * 2;
+  logoPoints.visible =
+    !!CONFIG.imageMode && !!hasTargets && CONFIG.logoParticleOpacity > 0;
 }
 
 function rebuildField() {
@@ -488,20 +623,46 @@ function rebuildField() {
 }
 
 function updateParticles() {
+  if (!positions || !velocities || !geometry?.attributes?.position) return;
+
+  const count = Math.min(
+    CONFIG.particleCount,
+    Math.floor(positions.length / 3),
+    Math.floor(velocities.length / 2),
+  );
+
+  const targets =
+    CONFIG.imageMode && imageTargets && imageTargets.length === count * 2
+      ? imageTargets
+      : null;
+
+  stepSimulation(positions, velocities, count, targets);
+  geometry.attributes.position.needsUpdate = true;
+}
+
+function stepSimulation(pos, vel, count, targets) {
   const G = CONFIG.gridSize;
   const range = CONFIG.viewScale;
   const fullRange = range * 2;
-  const pos = positions;
-  const vel = velocities;
-  const count = CONFIG.particleCount;
-
   const settle = CONFIG.settleStrength;
   const jitter = CONFIG.jitter;
   const drag = CONFIG.drag;
   const limit = CONFIG.speedLimit;
+  const limitSq = limit * limit;
 
   const gridScale = (G - 1) / fullRange;
   const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
+  let useTargets = false;
+  let fieldMult = 1.0;
+  let targetMult = 0.0;
+
+  if (targets) {
+    useTargets = true;
+    const blend = clamp(CONFIG.imageBlend, 0, 1);
+    fieldMult = 1.0 - blend;
+    targetMult = blend * IMAGE_ATTRACT_STRENGTH;
+  }
 
   for (let i = 0; i < count; i++) {
     const i3 = i * 3;
@@ -512,13 +673,10 @@ function updateParticles() {
     let vx = vel[i2];
     let vy = vel[i2 + 1];
 
-    let inside = true;
-    if (x < -range || x > range || y < -rectRy || y > rectRy) inside = false;
-
-    if (!inside) {
-      const respawn = randomPointInShape(Math.random);
-      x = respawn[0];
-      y = respawn[1];
+    // Boundary check & Respawn
+    if (x < -range || x > range || y < -rectRy || y > rectRy) {
+      x = (Math.random() - 0.5) * 2 * range;
+      y = (Math.random() - 0.5) * 2 * rectRy;
       vx = 0;
       vy = 0;
     }
@@ -547,8 +705,15 @@ function updateParticles() {
       (gradY[idx00] * (1 - tx) + gradY[idx10] * tx) * (1 - ty) +
       (gradY[idx01] * (1 - tx) + gradY[idx11] * tx) * ty;
 
-    vx -= gxVal * settle;
-    vy -= gyVal * settle;
+    if (fieldMult > 0.001) {
+      vx -= gxVal * settle * fieldMult;
+      vy -= gyVal * settle * fieldMult;
+    }
+
+    if (useTargets && targetMult > 0.001) {
+      vx += (targets[i2] - x) * targetMult;
+      vy += (targets[i2 + 1] - y) * targetMult;
+    }
 
     vx += (Math.random() - 0.5) * jitter;
     vy += (Math.random() - 0.5) * jitter;
@@ -557,10 +722,9 @@ function updateParticles() {
     vy *= drag;
 
     const speedSq = vx * vx + vy * vy;
-    const speed = Math.sqrt(speedSq);
 
-    if (speed > limit) {
-      const scale = limit / speed;
+    if (speedSq > limitSq) {
+      const scale = limit / Math.sqrt(speedSq);
       vx *= scale;
       vy *= scale;
     }
@@ -570,13 +734,35 @@ function updateParticles() {
 
     pos[i3] = x;
     pos[i3 + 1] = y;
-    pos[i3 + 2] = 0;
 
     vel[i2] = vx;
     vel[i2 + 1] = vy;
   }
+}
 
-  geometry.attributes.position.needsUpdate = true;
+function updateLogoParticles() {
+  if (
+    !logoPositions ||
+    !logoVelocities ||
+    !logoGeometry?.attributes?.position
+  ) {
+    return;
+  }
+
+  const count = Math.min(
+    Math.floor(logoPositions.length / 3),
+    Math.floor(logoVelocities.length / 2),
+  );
+  const hasTargets =
+    CONFIG.imageMode &&
+    CONFIG.logoParticleOpacity > 0 &&
+    imageTargets &&
+    imageTargets.length === count * 2;
+  syncLogoVisibility();
+  if (!hasTargets) return;
+
+  stepSimulation(logoPositions, logoVelocities, count, imageTargets);
+  logoGeometry.attributes.position.needsUpdate = true;
 }
 
 function onWindowResize() {
@@ -588,12 +774,6 @@ function onWindowResize() {
   camera.bottom = -frustumSize / 2;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-}
-
-function randomPointInShape(randomFn = Math.random) {
-  const range = CONFIG.viewScale;
-  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
-  return [(randomFn() - 0.5) * 2 * range, (randomFn() - 0.5) * 2 * rectRy];
 }
 
 function quantizeModeValue(v) {
@@ -613,25 +793,39 @@ function randomPhaseOffset() {
   return (Math.random() - 0.5) * phaseRange;
 }
 
-function randomizeModes() {
+function randomizeModes(rebuild = true) {
   const maxModes = 12;
   CONFIG.modeCount = Math.floor(1 + Math.random() * maxModes);
-  CONFIG.mRange.min = Math.random() * 20;
+
+  const rangeFloor = 1.0;
+  const rangeCeil = 10.0;
+
+  const biased = (power) => Math.pow(Math.random(), power);
+
+  // Bias ranges toward low-to-mid frequencies while still allowing variation.
+  const mMin = rangeFloor + biased(1.4) * 4.5; // ~1..5.5
+  const mSpan = 1.2 + biased(1.8) * 3.3; // ~1.2..4.5
+  CONFIG.mRange.min = Math.round(mMin * 10) / 10;
   CONFIG.mRange.max =
-    CONFIG.mRange.min + Math.random() * (15 - CONFIG.mRange.min);
-  CONFIG.nRange.min = Math.random() * 20;
+    Math.round(Math.min(rangeCeil, CONFIG.mRange.min + mSpan) * 10) / 10;
+
+  const nMin = rangeFloor + biased(1.5) * 5.2; // ~1..6.2
+  const nSpan = 1.4 + biased(1.9) * 3.6; // ~1.4..5.0
+  CONFIG.nRange.min = Math.round(nMin * 10) / 10;
   CONFIG.nRange.max =
-    CONFIG.nRange.min + Math.random() * (15 - CONFIG.nRange.min);
+    Math.round(Math.min(rangeCeil, CONFIG.nRange.min + nSpan) * 10) / 10;
 
   CONFIG.integerModes = Math.random() < 0.5;
 
   initModes();
-  rebuildField();
 
-  if (refreshUI) {
-    suppressUIEvents = true;
-    refreshUI();
-    suppressUIEvents = false;
+  if (rebuild) {
+    rebuildField();
+    if (refreshUI) {
+      suppressUIEvents = true;
+      refreshUI();
+      suppressUIEvents = false;
+    }
   }
 }
 
@@ -651,14 +845,17 @@ function initModes() {
       CONFIG.nRange.max,
       true,
     );
+    const px = randomPhaseOffset();
+    const py = randomPhaseOffset();
+    const angle = (Math.random() - 0.5) * 2 * Math.PI;
     modes.push({
       m: quantizeModeValue(mRaw),
       n: quantizeModeValue(nRaw),
       a: Math.exp(-i * 0.35),
-      px: randomPhaseOffset(),
-      py: randomPhaseOffset(),
-      cos: 1,
-      sin: 0,
+      px: px,
+      py: py,
+      cos: Math.cos(angle),
+      sin: Math.sin(angle),
     });
   }
   normalizeModeAmplitudes();
@@ -680,6 +877,7 @@ function normalizeModeAmplitudes() {
 function animate() {
   requestAnimationFrame(animate);
   updateParticles();
+  updateLogoParticles();
   renderer.render(scene, camera);
 }
 
@@ -702,6 +900,227 @@ function applyCameraFromControl(control) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function ensureImageFileInput() {
+  if (imageFileInput) return imageFileInput;
+
+  imageFileInput = document.createElement("input");
+  imageFileInput.type = "file";
+  imageFileInput.accept = "image/*";
+  imageFileInput.style.display = "none";
+  imageFileInput.addEventListener("change", onImageFileSelected);
+  document.body.appendChild(imageFileInput);
+
+  return imageFileInput;
+}
+
+function promptImageUpload() {
+  const input = ensureImageFileInput();
+  input.click();
+}
+
+function onImageFileSelected(event) {
+  const input = event.target;
+  const file = input.files && input.files[0];
+  if (!file) return;
+
+  const imageUrl = URL.createObjectURL(file);
+  const img = new Image();
+  img.onload = () => {
+    updateImageSource(img, file.name);
+    const hasPoints = rebuildImagePointCloud();
+    if (hasPoints) {
+      CONFIG.imageMode = true;
+      rebuildImageTargets();
+      snapParticlesToImage();
+      syncLogoVisibility();
+      if (refreshUI) refreshUI();
+    } else {
+      syncLogoVisibility();
+    }
+    URL.revokeObjectURL(imageUrl);
+    input.value = "";
+  };
+  img.onerror = () => {
+    URL.revokeObjectURL(imageUrl);
+    input.value = "";
+  };
+  img.src = imageUrl;
+}
+
+function updateImageSource(img, name) {
+  const maxDim = 512;
+  const longest = Math.max(img.width, img.height);
+  const scale = longest > maxDim ? maxDim / longest : 1;
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) {
+    imageSource = null;
+    imagePointCloud = null;
+    imageTargets = null;
+    return;
+  }
+  ctx.drawImage(img, 0, 0, width, height);
+  const pixels = ctx.getImageData(0, 0, width, height).data;
+
+  imageSource = {
+    name,
+    width,
+    height,
+    pixels: new Uint8ClampedArray(pixels),
+  };
+}
+
+function rebuildImagePointCloud() {
+  if (!imageSource) return false;
+
+  const threshold = clamp(CONFIG.imageThreshold, 0, 1);
+  const points = [];
+  const { width, height, pixels } = imageSource;
+  const pixelCount = width * height;
+  const baseMask = new Uint8Array(pixelCount);
+  const alphaCutoff = 0.02;
+
+  for (let i = 0; i < pixelCount; i++) {
+    const idx = i * 4;
+    const alpha = pixels[idx + 3] / 255;
+    if (alpha <= alphaCutoff) continue;
+    const brightness = (pixels[idx] + pixels[idx + 1] + pixels[idx + 2]) / 765;
+    const selected = CONFIG.imageInvert
+      ? brightness >= threshold
+      : brightness <= threshold;
+    if (selected) baseMask[i] = 1;
+  }
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      if (!baseMask[i]) continue;
+
+      if (CONFIG.imageStyle === "Outline") {
+        const left = x > 0 ? baseMask[i - 1] : 0;
+        const right = x + 1 < width ? baseMask[i + 1] : 0;
+        const up = y > 0 ? baseMask[i - width] : 0;
+        const down = y + 1 < height ? baseMask[i + width] : 0;
+        if (left && right && up && down) continue;
+      }
+
+      const nx = (x + 0.5) / width - 0.5;
+      const ny = 0.5 - (y + 0.5) / height;
+      points.push(nx, ny);
+    }
+  }
+
+  if (points.length === 0) {
+    imagePointCloud = null;
+    imageTargets = null;
+    syncLogoVisibility();
+    return false;
+  }
+
+  imagePointCloud = {
+    name: imageSource.name,
+    width,
+    height,
+    points: new Float32Array(points),
+  };
+  return true;
+}
+
+function rebuildImageTargets() {
+  if (!imagePointCloud) {
+    imageTargets = null;
+    syncLogoVisibility();
+    return;
+  }
+
+  const pointCount = imagePointCloud.points.length / 2;
+  if (pointCount === 0) {
+    imageTargets = null;
+    syncLogoVisibility();
+    return;
+  }
+
+  const targetCount = Math.max(1, Math.round(CONFIG.logoParticleCount));
+  imageTargets = new Float32Array(targetCount * 2);
+
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+  const logoScale = clamp(CONFIG.imageScale, 0.1, 1.5);
+  const boundHalfWidth = range * 0.9 * logoScale;
+  const boundHalfHeight = rectRy * 0.9 * logoScale;
+  const boundsAspect = boundHalfWidth / boundHalfHeight;
+  const imageAspect = imagePointCloud.width / imagePointCloud.height;
+
+  let halfWidth = boundHalfWidth;
+  let halfHeight = boundHalfHeight;
+  if (imageAspect > boundsAspect) {
+    halfHeight = halfWidth / imageAspect;
+  } else {
+    halfWidth = halfHeight * imageAspect;
+  }
+
+  const points = imagePointCloud.points;
+  const pixelJitterX = 0.9 / imagePointCloud.width;
+  const pixelJitterY = 0.9 / imagePointCloud.height;
+  for (let i = 0; i < targetCount; i++) {
+    const i2 = i * 2;
+    // Randomized point sampling avoids visible scanline/repetition artifacts.
+    const src = Math.floor(Math.random() * pointCount);
+    const src2 = src * 2;
+    const nx = clamp(
+      points[src2] + (Math.random() - 0.5) * pixelJitterX,
+      -0.5,
+      0.5,
+    );
+    const ny = clamp(
+      points[src2 + 1] + (Math.random() - 0.5) * pixelJitterY,
+      -0.5,
+      0.5,
+    );
+    imageTargets[i2] = nx * (halfWidth * 2);
+    imageTargets[i2 + 1] = ny * (halfHeight * 2);
+  }
+  syncLogoVisibility();
+}
+
+function clearImageData() {
+  imageSource = null;
+  imagePointCloud = null;
+  imageTargets = null;
+  CONFIG.imageMode = false;
+  syncLogoVisibility();
+  if (refreshUI) refreshUI();
+}
+
+function snapParticlesToImage() {
+  if (
+    !imageTargets ||
+    !logoPositions ||
+    !logoVelocities ||
+    imageTargets.length !== logoVelocities.length
+  ) {
+    return;
+  }
+
+  const count = logoVelocities.length / 2;
+  for (let i = 0; i < count; i++) {
+    const i2 = i * 2;
+    const i3 = i * 3;
+    logoPositions[i3] = imageTargets[i2];
+    logoPositions[i3 + 1] = imageTargets[i2 + 1];
+    logoPositions[i3 + 2] = 0;
+    logoVelocities[i2] = 0;
+    logoVelocities[i2 + 1] = 0;
+  }
+  logoGeometry.attributes.position.needsUpdate = true;
+  syncLogoVisibility();
 }
 
 function setupMouseControls() {
@@ -782,22 +1201,24 @@ function setupMouseControls() {
 function onKeyDown(event) {
   const tag = event.target ? event.target.tagName.toLowerCase() : "";
   if (tag === "input" || tag === "textarea" || tag === "select") return;
-  if (event.key.toLowerCase() === "r") randomizeAll();
+  const key = event.key.toLowerCase();
+  if (key === "r") randomizeAll();
+  if (key === "s") saveImage({ useViewport: false });
+  if (key === "c") saveImage({ useViewport: true });
+  if (key === "h" && pane) pane.hidden = !pane.hidden;
 }
 
 function setupGUI() {
-  const pane = new Pane({ title: "Controls" });
+  pane = new Pane({ title: "Controls" });
   pane.element.classList.add("tp-minimal");
   pane.registerPlugin(EssentialsPlugin);
+  pane.registerPlugin(InfodumpPlugin);
   const inputs = [];
-
-  const titleEl = pane.element.querySelector(".tp-rotv_t");
 
   const legendStyle = document.createElement("style");
   legendStyle.textContent = `
     .tp-legend{
-      margin: 4px 14px 4px;
-      padding: 2px 2px;
+      padding: 8px;
       color: #afcea1;
       font: 12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto;
       display: grid;
@@ -841,7 +1262,30 @@ function setupGUI() {
 </svg>
 
 `,
+    keyS: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke="#B8B8B8"/>
+<text x="12" y="16.5" font-family="sans-serif" font-size="13" font-weight="600" fill="#AFCEA1" text-anchor="middle">S</text>
+</svg>
+`,
+    keyC: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke="#B8B8B8"/>
+<text x="12" y="16.5" font-family="sans-serif" font-size="13" font-weight="600" fill="#AFCEA1" text-anchor="middle">C</text>
+</svg>
+`,
+    keyH: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke="#B8B8B8"/>
+<text x="12" y="16.5" font-family="sans-serif" font-size="13" font-weight="600" fill="#AFCEA1" text-anchor="middle">H</text>
+</svg>
+`,
   };
+
+  const shortcutsFolder = pane.addFolder({
+    title: "Shortcuts",
+    expanded: false,
+  });
 
   const legend = document.createElement("div");
   legend.className = "tp-legend";
@@ -850,11 +1294,13 @@ function setupGUI() {
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.drag}</span><span>Drag: pan</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.dbl}</span><span>Double click: reset postion</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyR}</span><span>R: randomize all</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyS}</span><span>S: save image</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyC}</span><span>C: save current view</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyH}</span><span>H: toggle controls</span></div>
   `;
-  if (titleEl && titleEl.parentElement) {
-    titleEl.parentElement.insertAdjacentElement("afterend", legend);
-  } else {
-    pane.element.prepend(legend);
+  const container = shortcutsFolder.element.querySelector(".tp-fldv_c");
+  if (container) {
+    container.appendChild(legend);
   }
 
   const waveTypeOptions = WAVE_TYPE_KEYS.reduce((obj, key) => {
@@ -862,12 +1308,26 @@ function setupGUI() {
     return obj;
   }, {});
 
+  const guideFolder = pane.addFolder({
+    title: "Guide",
+    expanded: false,
+  });
+  guideFolder.addBlade({
+    view: "infodump",
+    markdown: true,
+    content: [
+      "**Waves:** Start with `Wave A`, `Wave B`, and `Mix` to shape the background plate pattern.",
+      "**Motion:** Increase `Settle` for sharper nodes, then balance with `Jitter`.",
+      "**Logo mode:** Upload a logo, if it is not displayed correctly, use Invert, tune `Image mix` and `Threshold`.",
+    ].join("\n\n"),
+  });
+
   const particlesFolder = pane.addFolder({ title: "Particles" });
   inputs.push(
     particlesFolder
       .addBinding(CONFIG, "particleCount", {
         min: 50000,
-        max: 1500000,
+        max: 1000000,
         step: 10000,
         label: "Count",
       })
@@ -887,23 +1347,39 @@ function setupGUI() {
   );
   inputs.push(
     particlesFolder
+      .addBinding(CONFIG, "particleOpacity", {
+        min: 0.1,
+        max: 1.0,
+        step: 0.01,
+        label: "Opacity",
+      })
+      .on("change", (ev) => {
+        points.material.opacity = ev.value;
+      }),
+  );
+  inputs.push(
+    particlesFolder
       .addBinding(CONFIG, "color", { label: "Color" })
       .on("change", (ev) => applyParticleColor(ev.value)),
   );
   const motionFolder = pane.addFolder({ title: "Motion" });
   inputs.push(
-    motionFolder.addBinding(CONFIG, "settleStrength", {
-      min: 0.5,
-      max: 10.0,
-      step: 0.1,
-    }).on("change", () => rebuildParticles()),
+    motionFolder
+      .addBinding(CONFIG, "settleStrength", {
+        min: 0.5,
+        max: 10.0,
+        step: 0.1,
+      })
+      .on("change", () => rebuildParticles()),
   );
   inputs.push(
-    motionFolder.addBinding(CONFIG, "jitter", {
-      min: 0.0,
-      max: 0.3,
-      step: 0.01,
-    }).on("change", () => rebuildParticles()),
+    motionFolder
+      .addBinding(CONFIG, "jitter", {
+        min: 0.0,
+        max: 0.3,
+        step: 0.01,
+      })
+      .on("change", () => rebuildParticles()),
   );
   inputs.push(
     motionFolder
@@ -911,11 +1387,13 @@ function setupGUI() {
       .on("change", () => rebuildParticles()),
   );
   inputs.push(
-    motionFolder.addBinding(CONFIG, "speedLimit", {
-      min: 0.2,
-      max: 3.0,
-      step: 0.1,
-    }).on("change", () => rebuildParticles()),
+    motionFolder
+      .addBinding(CONFIG, "speedLimit", {
+        min: 0.2,
+        max: 3.0,
+        step: 0.1,
+      })
+      .on("change", () => rebuildParticles()),
   );
 
   const wavesFolder = pane.addFolder({ title: "Waves" });
@@ -927,7 +1405,6 @@ function setupGUI() {
       })
       .on("change", () => {
         rebuildField();
-        rebuildParticles();
       }),
   );
   inputs.push(
@@ -938,7 +1415,6 @@ function setupGUI() {
       })
       .on("change", () => {
         rebuildField();
-        rebuildParticles();
       }),
   );
   inputs.push(
@@ -951,28 +1427,23 @@ function setupGUI() {
       })
       .on("change", () => {
         rebuildField();
-        rebuildParticles();
       }),
   );
   inputs.push(
     wavesFolder
       .addBinding(CONFIG, "fieldScale", {
-        min: 0.5,
+        min: 0.3,
         max: 2.0,
         step: 0.1,
         label: "Field scale",
       })
       .on("change", () => {
         rebuildField();
-        rebuildParticles();
       }),
   );
-  wavesFolder
-    .addButton({ title: "Randomize waves" })
-    .on("click", () => {
-      randomizeWaves();
-      rebuildParticles();
-    });
+  wavesFolder.addButton({ title: "Randomize waves" }).on("click", () => {
+    randomizeWaves();
+  });
 
   const modesFolder = pane.addFolder({ title: "Modes" });
   inputs.push(
@@ -1005,28 +1476,137 @@ function setupGUI() {
         }
       }),
   );
+
+  const imageFolder = pane.addFolder({ title: "Logo" });
+  imageFolder.addButton({ title: "Upload logo" }).on("click", () => {
+    promptImageUpload();
+  });
+  imageFolder.addButton({ title: "Clear logo" }).on("click", () => {
+    clearImageData();
+  });
   inputs.push(
-    modesFolder
-      .addBinding(CONFIG, "phaseJitter", {
-        min: 0,
-        max: 1,
+    imageFolder
+      .addBinding(CONFIG, "imageScale", {
+        min: 0.1,
+        max: 1.5,
         step: 0.01,
+        label: "Scale",
       })
       .on("change", () => {
-        if (!suppressUIEvents) {
-          rebuildModesFromConfig();
-          rebuildParticles();
+        if (imagePointCloud) {
+          rebuildImageTargets();
+          if (CONFIG.imageMode) snapParticlesToImage();
         }
       }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "logoColor", {
+        label: "Logo color",
+      })
+      .on("change", (ev) => applyLogoColor(ev.value)),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "logoParticleCount", {
+        min: 1000,
+        max: 100000,
+        step: 1000,
+        label: "Logo count",
+      })
+      .on("change", () => {
+        rebuildLogoParticles();
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "logoParticleSize", {
+        min: 1.0,
+        max: 4.0,
+        step: 0.1,
+        label: "Particles size",
+      })
+      .on("change", (ev) => {
+        if (logoPoints?.material) logoPoints.material.size = ev.value;
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "logoParticleOpacity", {
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        label: "Opacity",
+      })
+      .on("change", (ev) => {
+        if (logoPoints?.material) logoPoints.material.opacity = ev.value;
+        syncLogoVisibility();
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "imageThreshold", {
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        label: "Threshold",
+      })
+      .on("change", () => {
+        if (!imageSource) return;
+        if (rebuildImagePointCloud()) {
+          rebuildImageTargets();
+          if (CONFIG.imageMode) snapParticlesToImage();
+        }
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "imageStyle", {
+        options: {
+          Fill: "Fill",
+          Outline: "Outline",
+        },
+        label: "Style",
+      })
+      .on("change", () => {
+        if (!imageSource) return;
+        if (rebuildImagePointCloud()) {
+          rebuildImageTargets();
+          if (CONFIG.imageMode) snapParticlesToImage();
+        }
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "imageInvert", {
+        label: "Invert",
+      })
+      .on("change", () => {
+        if (!imageSource) return;
+        if (rebuildImagePointCloud()) {
+          rebuildImageTargets();
+          if (CONFIG.imageMode) snapParticlesToImage();
+        }
+      }),
+  );
+  inputs.push(
+    imageFolder.addBinding(CONFIG, "imageBlend", {
+      min: 0.0,
+      max: 1.0,
+      step: 0.01,
+      label: "Image mix",
+    }),
   );
 
   const captureFolder = pane.addFolder({ title: "Capture" });
   inputs.push(
-    captureFolder.addBinding(CONFIG, "exportBaseSize", {
-      min: 1024,
-      max: 7168,
-      step: 512,
-    }).on("change", () => rebuildParticles()),
+    captureFolder
+      .addBinding(CONFIG, "exportBaseSize", {
+        min: 1024,
+        max: 7168,
+        step: 512,
+      })
+      .on("change", () => rebuildParticles()),
   );
   inputs.push(
     captureFolder
@@ -1043,7 +1623,10 @@ function setupGUI() {
         },
         label: "Aspect",
       })
-      .on("change", () => rebuildParticles()),
+      .on("change", () => {
+        rebuildParticles();
+        if (imagePointCloud) rebuildImageTargets();
+      }),
   );
   inputs.push(
     captureFolder.addBinding(CONFIG, "exportOpaque", {
@@ -1059,6 +1642,11 @@ function setupGUI() {
       })
       .on("change", (ev) => applyCameraFromControl(ev.value)),
   );
+
+  captureFolder
+    .addButton({ title: "Randomize All" })
+    .on("click", () => randomizeAll());
+
   captureFolder
     .addButton({ title: "Save image" })
     .on("click", () => saveImage({ useViewport: false }));
@@ -1077,6 +1665,7 @@ function saveImage({ useViewport = false } = {}) {
   const oldPixelRatio = renderer.getPixelRatio();
   const oldClearColor = renderer.getClearColor(new THREE.Color());
   const oldPointSize = points.material.size;
+  const oldLogoPointSize = logoPoints ? logoPoints.material.size : 0;
   const oldCameraControl = {
     x: CONFIG.cameraControl.x,
     y: CONFIG.cameraControl.y,
@@ -1118,6 +1707,8 @@ function saveImage({ useViewport = false } = {}) {
   }
 
   points.material.size = oldPointSize * (exportWidth / oldSize.x);
+  if (logoPoints)
+    logoPoints.material.size = oldLogoPointSize * (exportWidth / oldSize.x);
   renderer.render(scene, camera);
 
   const link = document.createElement("a");
@@ -1126,6 +1717,7 @@ function saveImage({ useViewport = false } = {}) {
   link.click();
 
   points.material.size = oldPointSize;
+  if (logoPoints) logoPoints.material.size = oldLogoPointSize;
   renderer.setClearColor(oldClearColor, 1);
   renderer.setPixelRatio(oldPixelRatio);
   renderer.setSize(oldSize.x, oldSize.y, false);
@@ -1139,19 +1731,38 @@ function saveImage({ useViewport = false } = {}) {
   onWindowResize();
 }
 
-function randomizeWaves() {
+function randomizeWaves(rebuild = true) {
   const keys = WAVE_TYPE_KEYS;
   CONFIG.waveTypeA = keys[Math.floor(Math.random() * keys.length)];
   CONFIG.waveTypeB = keys[Math.floor(Math.random() * keys.length)];
 
-  rebuildField();
-  if (refreshUI) refreshUI();
+  if (rebuild) {
+    rebuildField();
+    resetParticles();
+    if (refreshUI) refreshUI();
+  }
 }
 
 function randomizeAll() {
-  randomizeModes();
+  randomizeModes(false);
+  randomizeWaves(false);
+
   CONFIG.waveMix = Math.round(Math.random() * 100) / 100;
-  CONFIG.fieldScale = Math.round((0.5 + Math.random() * 4.5) * 10) / 10;
-  randomizeWaves();
+  CONFIG.fieldScale = Math.round((0.2 + Math.random() * 1.8) * 10) / 10;
+
+  // Randomize particles
+  CONFIG.particleSize = Math.round((1.0 + Math.random() * 4.0) * 10) / 10;
+  if (points) points.material.size = CONFIG.particleSize;
+
+  CONFIG.particleOpacity = Math.round((0.1 + Math.random() * 0.9) * 100) / 100;
+  if (points) points.material.opacity = CONFIG.particleOpacity;
+
+  CONFIG.color =
+    "#" +
+    new THREE.Color(Math.random(), Math.random(), Math.random()).getHexString();
+  applyParticleColor(CONFIG.color);
+
+  rebuildField();
+  resetParticles();
   if (refreshUI) refreshUI();
 }
