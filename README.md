@@ -10,8 +10,24 @@ Generative art simulation built with Three.js. This project simulates Chladni fi
 - **25+ Wave Algorithms:** Includes classic Cartesian/Radial waves plus stylized variants like Gyroid, Quasicrystal, Voronoi, Hexagonal, Lattice, RingInterference, Wallpaper, and more.
 - **Physics Simulation:** Particles include Brownian motion (jitter), drag, momentum, and a speed clamp for stable, organic motion.
 - **Logo Integration Mode:** Upload a logo (transparent PNG recommended) and map particles to fill or outline targets with alpha/luminance extraction.
+- **Text Layer Mode:** Render text as its own particle target layer using **BDO Grotesk** (bold), with independent text particle controls.
 - **High-Res Export:** Save PNG snapshots with optional transparent background.
 - **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
+
+## Recent Updates
+
+- Added simultaneous **icon + text** composition (both layers can run together).
+- Added independent horizontal offsets:
+  - `Logo -> X offset`
+  - `Text -> X offset`
+- Added text alignment options: `Left`, `Center`, `Right`.
+- Added text particle controls:
+  - `Particle count`
+  - `Particle size`
+  - `Text opacity`
+  - `Text color`
+- Text rendering now uses **BDO Grotesk Bold** by default.
+- Removed text weight selection from GUI and removed line-width control from GUI.
 
 
 ## Examples
@@ -66,7 +82,8 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 3. **Waves:** Select algorithms (Type A/B), mix ratio, noise, and field scale.
 4. **Logo:** Upload/clear logo targets, snap particles to the logo, and tune force mode (`Logo Only`/`Blend`), separate `Logo count`, `Logo size`, `Logo opacity`, `Logo color`, luminance thresholding, style (`Fill`/`Outline`), and scale.
 5. **Modes:** Control complexity (`modeCount`, `mRange`, `nRange`, integer quantization).
-6. **Capture:** Aspect, export size, background transparency, camera pan/zoom, and export buttons.
+6. **Text:** Enter text and control `Align`, `X offset`, `Particle count`, `Particle size`, `Text opacity`, `Text color`, and `Font size`.
+7. **Capture:** Aspect, export size, background transparency, camera pan/zoom, and export buttons.
 
 ### Mouse & Keyboard
 
