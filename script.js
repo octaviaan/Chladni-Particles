@@ -40,10 +40,20 @@ const CONFIG = {
   imageThreshold: 0.7,
   imageInvert: false,
   imageScale: 0.7,
+  iconOffsetX: 0,
   logoParticleCount: 50000,
   logoParticleSize: 2.0,
   logoParticleOpacity: 0.85,
   logoColor: "#ffffff",
+  textValue: "Gitcoin",
+  textAlign: "Center",
+  textFontSize: 180,
+  textLineWidth: 0.9,
+  textOffsetX: 0,
+  textParticleCount: 50000,
+  textParticleSize: 2.0,
+  textParticleOpacity: 0.85,
+  textColor: "#ffffff",
 };
 
 // --- Math Helpers ---
@@ -306,19 +316,25 @@ const ACCENT_COLOR_RATIO = 0.1;
 const YELLOW_COLOR = new THREE.Color("#ffe997");
 const YELLOW_COLOR_RATIO = 0.05;
 const IMAGE_ATTRACT_STRENGTH = 0.03;
+const TEXT_FONT_FAMILY = '"BDO Grotesk", sans-serif';
 
 // --- Global Variables ---
 let scene, camera, renderer, geometry, points, logoGeometry, logoPoints;
+let textGeometry, textPoints;
 let positions, velocities, colors, logoPositions, logoVelocities;
+let textPositions, textVelocities;
 let refreshUI = null;
 let suppressUIEvents = false;
 let pane;
 let isPanning = false;
 let lastPointer = { x: 0, y: 0 };
 let imageFileInput = null;
-let imageSource = null;
+let logoImageSource = null;
+let textImageSource = null;
 let imagePointCloud = null;
 let imageTargets = null;
+let textPointCloud = null;
+let textTargets = null;
 
 // Field Data
 let energy;
@@ -363,6 +379,7 @@ function init() {
 
   buildParticles();
   buildLogoParticles();
+  buildTextParticles();
 
   const sprite = new THREE.TextureLoader().load(
     "https://threejs.org/examples/textures/sprites/disc.png",
@@ -401,6 +418,24 @@ function init() {
   logoPoints.visible = false;
   logoPoints.renderOrder = 10;
   scene.add(logoPoints);
+
+  const textMaterial = new THREE.PointsMaterial({
+    color: CONFIG.textColor,
+    size: CONFIG.textParticleSize,
+    map: sprite,
+    alphaTest: 0.0,
+    transparent: true,
+    opacity: CONFIG.textParticleOpacity,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    depthTest: false,
+    sizeAttenuation: false,
+  });
+
+  textPoints = new THREE.Points(textGeometry, textMaterial);
+  textPoints.visible = false;
+  textPoints.renderOrder = 11;
+  scene.add(textPoints);
 
   window.addEventListener("resize", onWindowResize);
   setupMouseControls();
@@ -482,6 +517,33 @@ function buildLogoParticles() {
   );
 }
 
+function buildTextParticles() {
+  textGeometry = new THREE.BufferGeometry();
+
+  const textCount = Math.max(1, Math.round(CONFIG.textParticleCount));
+  textPositions = new Float32Array(textCount * 3);
+  textVelocities = new Float32Array(textCount * 2);
+
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
+  for (let i = 0; i < textCount; i++) {
+    const x = (Math.random() - 0.5) * 2 * range;
+    const y = (Math.random() - 0.5) * 2 * rectRy;
+    textPositions[i * 3 + 0] = x;
+    textPositions[i * 3 + 1] = y;
+    textPositions[i * 3 + 2] = 0;
+
+    textVelocities[i * 2 + 0] = 0;
+    textVelocities[i * 2 + 1] = 0;
+  }
+
+  textGeometry.setAttribute(
+    "position",
+    new THREE.BufferAttribute(textPositions, 3),
+  );
+}
+
 function rebuildParticles() {
   const oldGeometry = points.geometry;
   buildParticles();
@@ -527,6 +589,24 @@ function rebuildLogoParticles() {
   if (imagePointCloud) {
     rebuildImageTargets();
     if (CONFIG.imageMode) snapParticlesToImage();
+  } else {
+    imageTargets = null;
+  }
+  syncLogoVisibility();
+}
+
+function rebuildTextParticles() {
+  if (!textPoints) return;
+  const oldGeometry = textPoints.geometry;
+  buildTextParticles();
+  textPoints.geometry = textGeometry;
+  if (oldGeometry) oldGeometry.dispose();
+
+  if (textPointCloud) {
+    rebuildTextTargets();
+    if (CONFIG.imageMode) snapParticlesToText();
+  } else {
+    textTargets = null;
   }
   syncLogoVisibility();
 }
@@ -556,13 +636,23 @@ function applyLogoColor(hex) {
   logoPoints.material.color.set(hex);
 }
 
+function applyTextColor(hex) {
+  if (!textPoints?.material) return;
+  textPoints.material.color.set(hex);
+}
+
 function syncLogoVisibility() {
-  if (!logoPoints) return;
+  if (!logoPoints || !textPoints) return;
   const logoCount = logoVelocities ? logoVelocities.length / 2 : 0;
-  const hasTargets =
+  const textCount = textVelocities ? textVelocities.length / 2 : 0;
+  const hasLogoTargets =
     imageTargets && logoCount > 0 && imageTargets.length === logoCount * 2;
+  const hasTextTargets =
+    textTargets && textCount > 0 && textTargets.length === textCount * 2;
   logoPoints.visible =
-    !!CONFIG.imageMode && !!hasTargets && CONFIG.logoParticleOpacity > 0;
+    !!CONFIG.imageMode && !!hasLogoTargets && CONFIG.logoParticleOpacity > 0;
+  textPoints.visible =
+    !!CONFIG.imageMode && !!hasTextTargets && CONFIG.textParticleOpacity > 0;
 }
 
 function rebuildField() {
@@ -765,6 +855,31 @@ function updateLogoParticles() {
   logoGeometry.attributes.position.needsUpdate = true;
 }
 
+function updateTextParticles() {
+  if (
+    !textPositions ||
+    !textVelocities ||
+    !textGeometry?.attributes?.position
+  ) {
+    return;
+  }
+
+  const count = Math.min(
+    Math.floor(textPositions.length / 3),
+    Math.floor(textVelocities.length / 2),
+  );
+  const hasTargets =
+    CONFIG.imageMode &&
+    CONFIG.textParticleOpacity > 0 &&
+    textTargets &&
+    textTargets.length === count * 2;
+  syncLogoVisibility();
+  if (!hasTargets) return;
+
+  stepSimulation(textPositions, textVelocities, count, textTargets);
+  textGeometry.attributes.position.needsUpdate = true;
+}
+
 function onWindowResize() {
   const aspect = window.innerWidth / window.innerHeight;
   const frustumSize = CONFIG.viewScale * 2;
@@ -878,6 +993,7 @@ function animate() {
   requestAnimationFrame(animate);
   updateParticles();
   updateLogoParticles();
+  updateTextParticles();
   renderer.render(scene, camera);
 }
 
@@ -900,6 +1016,10 @@ function applyCameraFromControl(control) {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function hasImageSources() {
+  return !!logoImageSource || !!textImageSource;
 }
 
 function ensureImageFileInput() {
@@ -937,6 +1057,8 @@ function onImageFileSelected(event) {
       syncLogoVisibility();
       if (refreshUI) refreshUI();
     } else {
+      imageTargets = null;
+      if (!textTargets) CONFIG.imageMode = false;
       syncLogoVisibility();
     }
     URL.revokeObjectURL(imageUrl);
@@ -961,7 +1083,7 @@ function updateImageSource(img, name) {
   canvas.height = height;
   const ctx = canvas.getContext("2d", { willReadFrequently: true });
   if (!ctx) {
-    imageSource = null;
+    logoImageSource = null;
     imagePointCloud = null;
     imageTargets = null;
     return;
@@ -969,7 +1091,7 @@ function updateImageSource(img, name) {
   ctx.drawImage(img, 0, 0, width, height);
   const pixels = ctx.getImageData(0, 0, width, height).data;
 
-  imageSource = {
+  logoImageSource = {
     name,
     width,
     height,
@@ -977,15 +1099,134 @@ function updateImageSource(img, name) {
   };
 }
 
-function rebuildImagePointCloud() {
-  if (!imageSource) return false;
+function updateTextSource() {
+  const rawText = typeof CONFIG.textValue === "string" ? CONFIG.textValue : "";
+  const text = rawText.trim();
+  if (!text) {
+    textImageSource = null;
+    return false;
+  }
+
+  const width = 1024;
+  const height = 512;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  if (!ctx) return false;
+
+  const weight = 700;
+  const maxLineWidthRatio = clamp(CONFIG.textLineWidth, 0.4, 0.95);
+  const maxTextWidth = width * maxLineWidthRatio;
+  const maxTextHeight = height * 0.72;
+  let fontSize = clamp(Math.round(CONFIG.textFontSize), 16, 360);
+  const lineHeightFactor = 1.15;
+  const align = CONFIG.textAlign || "Center";
+  const blockLeft = (width - maxTextWidth) * 0.5;
+  const blockRight = width - blockLeft;
+  const drawX =
+    align === "Left" ? blockLeft : align === "Right" ? blockRight : width * 0.5;
+
+  ctx.fillStyle = "#000000";
+  ctx.textAlign =
+    align === "Left" ? "left" : align === "Right" ? "right" : "center";
+  ctx.textBaseline = "middle";
+
+  const wrapText = (value) => {
+    const words = value.split(/\s+/).filter(Boolean);
+    if (words.length === 0) return [];
+
+    const lines = [];
+    let currentLine = "";
+
+    for (let i = 0; i < words.length; i++) {
+      const word = words[i];
+      const candidate = currentLine ? `${currentLine} ${word}` : word;
+      if (ctx.measureText(candidate).width <= maxTextWidth) {
+        currentLine = candidate;
+        continue;
+      }
+
+      if (currentLine) lines.push(currentLine);
+
+      if (ctx.measureText(word).width <= maxTextWidth) {
+        currentLine = word;
+        continue;
+      }
+
+      let chunk = "";
+      for (const char of word) {
+        const next = chunk + char;
+        if (ctx.measureText(next).width > maxTextWidth && chunk) {
+          lines.push(chunk);
+          chunk = char;
+        } else {
+          chunk = next;
+        }
+      }
+      currentLine = chunk;
+    }
+
+    if (currentLine) lines.push(currentLine);
+    return lines;
+  };
+
+  let lines = [];
+  while (fontSize > 14) {
+    ctx.font = `${weight} ${fontSize}px ${TEXT_FONT_FAMILY}`;
+    lines = wrapText(text);
+    const textHeight = lines.length * fontSize * lineHeightFactor;
+    if (lines.length > 0 && textHeight <= maxTextHeight) break;
+    fontSize -= 2;
+  }
+
+  ctx.clearRect(0, 0, width, height);
+  ctx.font = `${weight} ${fontSize}px ${TEXT_FONT_FAMILY}`;
+  lines = wrapText(text);
+
+  const lineHeight = fontSize * lineHeightFactor;
+  const startY = height * 0.5 - ((lines.length - 1) * lineHeight) / 2;
+  for (let i = 0; i < lines.length; i++) {
+    ctx.fillText(lines[i], drawX, startY + i * lineHeight);
+  }
+
+  const pixels = ctx.getImageData(0, 0, width, height).data;
+  textImageSource = {
+    name: `Text: ${text}`,
+    width,
+    height,
+    pixels: new Uint8ClampedArray(pixels),
+  };
+  return true;
+}
+
+function applyTextSource() {
+  updateTextSource();
+
+  const hasPoints = rebuildTextPointCloud();
+  if (hasPoints) {
+    CONFIG.imageMode = true;
+    rebuildTextTargets();
+    snapParticlesToText();
+    syncLogoVisibility();
+    if (refreshUI) refreshUI();
+  } else {
+    textPointCloud = null;
+    textTargets = null;
+    if (!imageTargets) CONFIG.imageMode = false;
+    syncLogoVisibility();
+  }
+}
+
+function createPointCloudFromSource(source, offsetX) {
+  if (!source) return null;
 
   const threshold = clamp(CONFIG.imageThreshold, 0, 1);
+  const alphaCutoff = 0.02;
   const points = [];
-  const { width, height, pixels } = imageSource;
+  const { width, height, pixels } = source;
   const pixelCount = width * height;
   const baseMask = new Uint8Array(pixelCount);
-  const alphaCutoff = 0.02;
 
   for (let i = 0; i < pixelCount; i++) {
     const idx = i * 4;
@@ -1011,26 +1252,89 @@ function rebuildImagePointCloud() {
         if (left && right && up && down) continue;
       }
 
-      const nx = (x + 0.5) / width - 0.5;
+      const nx = (x + 0.5) / width - 0.5 + clamp(offsetX, -1.5, 1.5);
       const ny = 0.5 - (y + 0.5) / height;
       points.push(nx, ny);
     }
   }
 
-  if (points.length === 0) {
-    imagePointCloud = null;
-    imageTargets = null;
-    syncLogoVisibility();
-    return false;
-  }
+  if (points.length === 0) return null;
 
-  imagePointCloud = {
-    name: imageSource.name,
+  return {
+    name: source.name,
     width,
     height,
     points: new Float32Array(points),
   };
+}
+
+function rebuildImagePointCloud() {
+  imagePointCloud = createPointCloudFromSource(logoImageSource, CONFIG.iconOffsetX);
+  if (!imagePointCloud) {
+    imageTargets = null;
+    syncLogoVisibility();
+    return false;
+  }
   return true;
+}
+
+function rebuildTextPointCloud() {
+  textPointCloud = createPointCloudFromSource(textImageSource, CONFIG.textOffsetX);
+  if (!textPointCloud) {
+    textTargets = null;
+    syncLogoVisibility();
+    return false;
+  }
+  return true;
+}
+
+function createTargetsFromPointCloud(pointCloud, targetCount) {
+  if (!pointCloud) return null;
+
+  const pointCount = pointCloud.points.length / 2;
+  if (pointCount === 0) return null;
+
+  const targets = new Float32Array(targetCount * 2);
+
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+  const logoScale = clamp(CONFIG.imageScale, 0.1, 1.5);
+  const boundHalfWidth = range * 0.9 * logoScale;
+  const boundHalfHeight = rectRy * 0.9 * logoScale;
+  const boundsAspect = boundHalfWidth / boundHalfHeight;
+  const sourceAspect = pointCloud.width / pointCloud.height;
+
+  let halfWidth = boundHalfWidth;
+  let halfHeight = boundHalfHeight;
+  if (sourceAspect > boundsAspect) {
+    halfHeight = halfWidth / sourceAspect;
+  } else {
+    halfWidth = halfHeight * sourceAspect;
+  }
+
+  const points = pointCloud.points;
+  const pixelJitterX = 0.9 / pointCloud.width;
+  const pixelJitterY = 0.9 / pointCloud.height;
+
+  for (let i = 0; i < targetCount; i++) {
+    const i2 = i * 2;
+    const src = Math.floor(Math.random() * pointCount);
+    const src2 = src * 2;
+    const nx = clamp(
+      points[src2] + (Math.random() - 0.5) * pixelJitterX,
+      -1.5,
+      1.5,
+    );
+    const ny = clamp(
+      points[src2 + 1] + (Math.random() - 0.5) * pixelJitterY,
+      -1.5,
+      1.5,
+    );
+    targets[i2] = nx * (halfWidth * 2);
+    targets[i2 + 1] = ny * (halfHeight * 2);
+  }
+
+  return targets;
 }
 
 function rebuildImageTargets() {
@@ -1040,61 +1344,28 @@ function rebuildImageTargets() {
     return;
   }
 
-  const pointCount = imagePointCloud.points.length / 2;
-  if (pointCount === 0) {
-    imageTargets = null;
+  const targetCount = Math.max(1, Math.round(CONFIG.logoParticleCount));
+  imageTargets = createTargetsFromPointCloud(imagePointCloud, targetCount);
+  syncLogoVisibility();
+}
+
+function rebuildTextTargets() {
+  if (!textPointCloud) {
+    textTargets = null;
     syncLogoVisibility();
     return;
   }
 
-  const targetCount = Math.max(1, Math.round(CONFIG.logoParticleCount));
-  imageTargets = new Float32Array(targetCount * 2);
-
-  const range = CONFIG.viewScale;
-  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
-  const logoScale = clamp(CONFIG.imageScale, 0.1, 1.5);
-  const boundHalfWidth = range * 0.9 * logoScale;
-  const boundHalfHeight = rectRy * 0.9 * logoScale;
-  const boundsAspect = boundHalfWidth / boundHalfHeight;
-  const imageAspect = imagePointCloud.width / imagePointCloud.height;
-
-  let halfWidth = boundHalfWidth;
-  let halfHeight = boundHalfHeight;
-  if (imageAspect > boundsAspect) {
-    halfHeight = halfWidth / imageAspect;
-  } else {
-    halfWidth = halfHeight * imageAspect;
-  }
-
-  const points = imagePointCloud.points;
-  const pixelJitterX = 0.9 / imagePointCloud.width;
-  const pixelJitterY = 0.9 / imagePointCloud.height;
-  for (let i = 0; i < targetCount; i++) {
-    const i2 = i * 2;
-    // Randomized point sampling avoids visible scanline/repetition artifacts.
-    const src = Math.floor(Math.random() * pointCount);
-    const src2 = src * 2;
-    const nx = clamp(
-      points[src2] + (Math.random() - 0.5) * pixelJitterX,
-      -0.5,
-      0.5,
-    );
-    const ny = clamp(
-      points[src2 + 1] + (Math.random() - 0.5) * pixelJitterY,
-      -0.5,
-      0.5,
-    );
-    imageTargets[i2] = nx * (halfWidth * 2);
-    imageTargets[i2 + 1] = ny * (halfHeight * 2);
-  }
+  const targetCount = Math.max(1, Math.round(CONFIG.textParticleCount));
+  textTargets = createTargetsFromPointCloud(textPointCloud, targetCount);
   syncLogoVisibility();
 }
 
 function clearImageData() {
-  imageSource = null;
+  logoImageSource = null;
   imagePointCloud = null;
   imageTargets = null;
-  CONFIG.imageMode = false;
+  if (!textTargets) CONFIG.imageMode = false;
   syncLogoVisibility();
   if (refreshUI) refreshUI();
 }
@@ -1120,6 +1391,30 @@ function snapParticlesToImage() {
     logoVelocities[i2 + 1] = 0;
   }
   logoGeometry.attributes.position.needsUpdate = true;
+  syncLogoVisibility();
+}
+
+function snapParticlesToText() {
+  if (
+    !textTargets ||
+    !textPositions ||
+    !textVelocities ||
+    textTargets.length !== textVelocities.length
+  ) {
+    return;
+  }
+
+  const count = textVelocities.length / 2;
+  for (let i = 0; i < count; i++) {
+    const i2 = i * 2;
+    const i3 = i * 3;
+    textPositions[i3] = textTargets[i2];
+    textPositions[i3 + 1] = textTargets[i2 + 1];
+    textPositions[i3 + 2] = 0;
+    textVelocities[i2] = 0;
+    textVelocities[i2 + 1] = 0;
+  }
+  textGeometry.attributes.position.needsUpdate = true;
   syncLogoVisibility();
 }
 
@@ -1497,6 +1792,27 @@ function setupGUI() {
           rebuildImageTargets();
           if (CONFIG.imageMode) snapParticlesToImage();
         }
+        if (textPointCloud) {
+          rebuildTextTargets();
+          if (CONFIG.imageMode) snapParticlesToText();
+        }
+        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "iconOffsetX", {
+        min: -1.5,
+        max: 1.5,
+        step: 0.01,
+        label: "X offset",
+      })
+      .on("change", () => {
+        if (!logoImageSource) return;
+        if (rebuildImagePointCloud()) {
+          rebuildImageTargets();
+          if (CONFIG.imageMode) snapParticlesToImage();
+        }
       }),
   );
   inputs.push(
@@ -1552,11 +1868,16 @@ function setupGUI() {
         label: "Threshold",
       })
       .on("change", () => {
-        if (!imageSource) return;
+        if (!hasImageSources()) return;
         if (rebuildImagePointCloud()) {
           rebuildImageTargets();
           if (CONFIG.imageMode) snapParticlesToImage();
         }
+        if (rebuildTextPointCloud()) {
+          rebuildTextTargets();
+          if (CONFIG.imageMode) snapParticlesToText();
+        }
+        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
       }),
   );
   inputs.push(
@@ -1569,11 +1890,16 @@ function setupGUI() {
         label: "Style",
       })
       .on("change", () => {
-        if (!imageSource) return;
+        if (!hasImageSources()) return;
         if (rebuildImagePointCloud()) {
           rebuildImageTargets();
           if (CONFIG.imageMode) snapParticlesToImage();
         }
+        if (rebuildTextPointCloud()) {
+          rebuildTextTargets();
+          if (CONFIG.imageMode) snapParticlesToText();
+        }
+        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
       }),
   );
   inputs.push(
@@ -1582,11 +1908,16 @@ function setupGUI() {
         label: "Invert",
       })
       .on("change", () => {
-        if (!imageSource) return;
+        if (!hasImageSources()) return;
         if (rebuildImagePointCloud()) {
           rebuildImageTargets();
           if (CONFIG.imageMode) snapParticlesToImage();
         }
+        if (rebuildTextPointCloud()) {
+          rebuildTextTargets();
+          if (CONFIG.imageMode) snapParticlesToText();
+        }
+        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
       }),
   );
   inputs.push(
@@ -1597,6 +1928,106 @@ function setupGUI() {
       label: "Image mix",
     }),
   );
+
+  const textFolder = pane.addFolder({ title: "Text" });
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textValue", {
+        label: "Text",
+      })
+      .on("change", () => {
+        applyTextSource();
+      }),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textAlign", {
+        options: {
+          Left: "Left",
+          Center: "Center",
+          Right: "Right",
+        },
+        label: "Align",
+      })
+      .on("change", () => {
+        applyTextSource();
+      }),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textOffsetX", {
+        min: -1.5,
+        max: 1.5,
+        step: 0.01,
+        label: "X offset",
+      })
+      .on("change", () => {
+        if (!textImageSource) return;
+        if (rebuildTextPointCloud()) {
+          rebuildTextTargets();
+          if (CONFIG.imageMode) snapParticlesToText();
+        }
+      }),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textColor", {
+        label: "Text color",
+      })
+      .on("change", (ev) => applyTextColor(ev.value)),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textParticleCount", {
+        min: 1000,
+        max: 100000,
+        step: 1000,
+        label: "Particle count",
+      })
+      .on("change", () => {
+        rebuildTextParticles();
+      }),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textParticleSize", {
+        min: 1.0,
+        max: 4.0,
+        step: 0.1,
+        label: "Particle size",
+      })
+      .on("change", (ev) => {
+        if (textPoints?.material) textPoints.material.size = ev.value;
+      }),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textParticleOpacity", {
+        min: 0.0,
+        max: 1.0,
+        step: 0.01,
+        label: "Text opacity",
+      })
+      .on("change", (ev) => {
+        if (textPoints?.material) textPoints.material.opacity = ev.value;
+        syncLogoVisibility();
+      }),
+  );
+  inputs.push(
+    textFolder
+      .addBinding(CONFIG, "textFontSize", {
+        min: 16,
+        max: 360,
+        step: 1,
+        label: "Font size",
+      })
+      .on("change", () => {
+        applyTextSource();
+      }),
+  );
+  textFolder.addButton({ title: "Apply text" }).on("click", () => {
+    applyTextSource();
+  });
 
   const captureFolder = pane.addFolder({ title: "Capture" });
   inputs.push(
@@ -1626,6 +2057,7 @@ function setupGUI() {
       .on("change", () => {
         rebuildParticles();
         if (imagePointCloud) rebuildImageTargets();
+        if (textPointCloud) rebuildTextTargets();
       }),
   );
   inputs.push(
@@ -1666,6 +2098,7 @@ function saveImage({ useViewport = false } = {}) {
   const oldClearColor = renderer.getClearColor(new THREE.Color());
   const oldPointSize = points.material.size;
   const oldLogoPointSize = logoPoints ? logoPoints.material.size : 0;
+  const oldTextPointSize = textPoints ? textPoints.material.size : 0;
   const oldCameraControl = {
     x: CONFIG.cameraControl.x,
     y: CONFIG.cameraControl.y,
@@ -1709,6 +2142,8 @@ function saveImage({ useViewport = false } = {}) {
   points.material.size = oldPointSize * (exportWidth / oldSize.x);
   if (logoPoints)
     logoPoints.material.size = oldLogoPointSize * (exportWidth / oldSize.x);
+  if (textPoints)
+    textPoints.material.size = oldTextPointSize * (exportWidth / oldSize.x);
   renderer.render(scene, camera);
 
   const link = document.createElement("a");
@@ -1718,6 +2153,7 @@ function saveImage({ useViewport = false } = {}) {
 
   points.material.size = oldPointSize;
   if (logoPoints) logoPoints.material.size = oldLogoPointSize;
+  if (textPoints) textPoints.material.size = oldTextPointSize;
   renderer.setClearColor(oldClearColor, 1);
   renderer.setPixelRatio(oldPixelRatio);
   renderer.setSize(oldSize.x, oldSize.y, false);

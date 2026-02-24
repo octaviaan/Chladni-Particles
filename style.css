@@ -1,3 +1,12 @@
+@font-face {
+  font-family: "BDO Grotesk";
+  src: url("./assets/LCT_BDO_Grotesk/webfont/BDOGrotesk-Bold.woff2")
+    format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 .tp-minimal {
   position: absolute;
   top: 20px;
