@@ -1227,15 +1227,37 @@ function createPointCloudFromSource(source, offsetX) {
   const { width, height, pixels } = source;
   const pixelCount = width * height;
   const baseMask = new Uint8Array(pixelCount);
+  let transparentPixels = 0;
+
+  for (let i = 0; i < pixelCount; i++) {
+    const alpha = pixels[i * 4 + 3] / 255;
+    if (alpha <= alphaCutoff) transparentPixels++;
+  }
+
+  // If the image has meaningful transparency, alpha carries the shape better
+  // than luminance (e.g. white logos on transparent backgrounds).
+  const useAlphaMask =
+    transparentPixels > 0 && transparentPixels / pixelCount > 0.01;
+  const alphaThreshold = 1 - threshold;
 
   for (let i = 0; i < pixelCount; i++) {
     const idx = i * 4;
     const alpha = pixels[idx + 3] / 255;
     if (alpha <= alphaCutoff) continue;
-    const brightness = (pixels[idx] + pixels[idx + 1] + pixels[idx + 2]) / 765;
-    const selected = CONFIG.imageInvert
-      ? brightness >= threshold
-      : brightness <= threshold;
+
+    let selected = false;
+    if (useAlphaMask) {
+      selected = CONFIG.imageInvert
+        ? alpha <= alphaThreshold
+        : alpha >= alphaThreshold;
+    } else {
+      const brightness =
+        (pixels[idx] + pixels[idx + 1] + pixels[idx + 2]) / 765;
+      selected = CONFIG.imageInvert
+        ? brightness >= threshold
+        : brightness <= threshold;
+    }
+
     if (selected) baseMask[i] = 1;
   }
 
@@ -1269,7 +1291,10 @@ function createPointCloudFromSource(source, offsetX) {
 }
 
 function rebuildImagePointCloud() {
-  imagePointCloud = createPointCloudFromSource(logoImageSource, CONFIG.iconOffsetX);
+  imagePointCloud = createPointCloudFromSource(
+    logoImageSource,
+    CONFIG.iconOffsetX,
+  );
   if (!imagePointCloud) {
     imageTargets = null;
     syncLogoVisibility();
@@ -1279,7 +1304,10 @@ function rebuildImagePointCloud() {
 }
 
 function rebuildTextPointCloud() {
-  textPointCloud = createPointCloudFromSource(textImageSource, CONFIG.textOffsetX);
+  textPointCloud = createPointCloudFromSource(
+    textImageSource,
+    CONFIG.textOffsetX,
+  );
   if (!textPointCloud) {
     textTargets = null;
     syncLogoVisibility();
@@ -1826,7 +1854,7 @@ function setupGUI() {
     imageFolder
       .addBinding(CONFIG, "logoParticleCount", {
         min: 1000,
-        max: 100000,
+        max: 200000,
         step: 1000,
         label: "Logo count",
       })
@@ -1838,7 +1866,7 @@ function setupGUI() {
     imageFolder
       .addBinding(CONFIG, "logoParticleSize", {
         min: 1.0,
-        max: 4.0,
+        max: 6.0,
         step: 0.1,
         label: "Particles size",
       })
