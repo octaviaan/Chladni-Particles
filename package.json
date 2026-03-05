@@ -1,0 +1,21 @@
+{
+  "name": "3js_chladni",
+  "version": "1.0.0",
+  "description": "Generative art simulation built with Three.js. This project simulates Chladni figures (nodal patterns formed on vibrating plates) using a particle system that reacts to a computed energy field. Instead of drawing explicit 2D contour lines, it generates an interference “terrain” from blended wave functions. Particles flow downhill (via gradient descent) and settle into low-energy valleys (nodes). ## [> Test it out](https://octaviaan.github.io/Chladni-Particles/)",
+  "main": "script.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/octaviaan/Chladni-Particles.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/octaviaan/Chladni-Particles/issues"
+  },
+  "homepage": "https://github.com/octaviaan/Chladni-Particles#readme"
+}

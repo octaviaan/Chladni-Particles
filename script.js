@@ -11,28 +11,35 @@ const CONFIG = {
   jitter: 0.07,
   drag: 0.85,
   speedLimit: 2.0,
-  viewScale: 500,
+  loopRespawnChance: 0.002,
+  viewScale: 400,
   color: "#4f4030",
   particleSize: 2.0,
-  particleOpacity: 0.6,
+  particleOpacity: 0.7,
   cameraControl: { x: 0, y: 0, z: 1.5 },
   cameraDefault: { x: 0, y: 0, z: 1.5 },
   exportBaseSize: 2048,
   exportOpaque: false,
+  videoLoopSeconds: 6,
+  videoFps: 30,
+  videoWidth: 1920,
+  videoHeight: 1080,
+  formAnimate: false,
+  formAnimSpeed: 1.0,
 
   modeCount: 6,
   mRange: { min: 2, max: 6 },
   nRange: { min: 4, max: 10 },
 
   rectAspect: 1.78,
-  fieldScale: 0.4,
+  fieldScale: 0.9,
 
   waveTypeA: "Cartesian",
   waveTypeB: "Gyroid",
   waveMix: 0.5,
   phaseJitter: 0.69,
 
-  integerModes: false,
+  integerModes: true,
 
   imageMode: false,
   imageBlend: 1.0,
@@ -326,6 +333,7 @@ let textPositions, textVelocities;
 let refreshUI = null;
 let suppressUIEvents = false;
 let pane;
+let paneSecondary = null;
 let isPanning = false;
 let lastPointer = { x: 0, y: 0 };
 let imageFileInput = null;
@@ -335,6 +343,11 @@ let imagePointCloud = null;
 let imageTargets = null;
 let textPointCloud = null;
 let textTargets = null;
+let videoRecorder = null;
+let videoRecordingTimer = null;
+let videoRecordingChunks = [];
+let captureStatusEl = null;
+let captureStatusTimer = null;
 
 // Field Data
 let energy;
@@ -343,6 +356,11 @@ let gradY;
 
 // Modes
 let modes = [];
+
+// Formation animation
+let formAnimTime = 0;
+let lastAnimTime = null;
+let formProgress = null; // null = inactive, 0-1 = formation progress
 
 // --- Initialization ---
 init();
@@ -712,6 +730,25 @@ function rebuildField() {
   }
 }
 
+function scatterParticles() {
+  if (!positions || !velocities) return;
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+  const count = Math.min(
+    CONFIG.particleCount,
+    Math.floor(positions.length / 3),
+  );
+  for (let i = 0; i < count; i++) {
+    positions[i * 3] = (Math.random() - 0.5) * 2 * range;
+    positions[i * 3 + 1] = (Math.random() - 0.5) * 2 * rectRy;
+    positions[i * 3 + 2] = 0;
+    velocities[i * 2] = 0;
+    velocities[i * 2 + 1] = 0;
+  }
+  if (geometry?.attributes?.position)
+    geometry.attributes.position.needsUpdate = true;
+}
+
 function updateParticles() {
   if (!positions || !velocities || !geometry?.attributes?.position) return;
 
@@ -739,6 +776,7 @@ function stepSimulation(pos, vel, count, targets) {
   const drag = CONFIG.drag;
   const limit = CONFIG.speedLimit;
   const limitSq = limit * limit;
+  const loopRespawnChance = clamp(CONFIG.loopRespawnChance || 0, 0, 1);
 
   const gridScale = (G - 1) / fullRange;
   const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
@@ -746,12 +784,23 @@ function stepSimulation(pos, vel, count, targets) {
   let useTargets = false;
   let fieldMult = 1.0;
   let targetMult = 0.0;
+  let jitterMult = 1.0;
+  let allowLoopRespawn = true;
 
   if (targets) {
     useTargets = true;
     const blend = clamp(CONFIG.imageBlend, 0, 1);
     fieldMult = 1.0 - blend;
     targetMult = blend * IMAGE_ATTRACT_STRENGTH;
+    // When particles are driven to image/text targets, reduce random noise
+    // so they can settle instead of endlessly re-attracting.
+    jitterMult = 1.0 - blend;
+    allowLoopRespawn = false;
+  }
+
+  if (formProgress !== null) {
+    fieldMult *= formProgress;
+    jitterMult *= 1.0 - formProgress * 0.95;
   }
 
   for (let i = 0; i < count; i++) {
@@ -805,11 +854,18 @@ function stepSimulation(pos, vel, count, targets) {
       vy += (targets[i2 + 1] - y) * targetMult;
     }
 
-    vx += (Math.random() - 0.5) * jitter;
-    vy += (Math.random() - 0.5) * jitter;
+    vx += (Math.random() - 0.5) * jitter * jitterMult;
+    vy += (Math.random() - 0.5) * jitter * jitterMult;
 
     vx *= drag;
     vy *= drag;
+
+    if (allowLoopRespawn && Math.random() < loopRespawnChance) {
+      x = (Math.random() - 0.5) * 2 * range;
+      y = (Math.random() - 0.5) * 2 * rectRy;
+      vx = 0;
+      vy = 0;
+    }
 
     const speedSq = vx * vx + vy * vy;
 
@@ -991,6 +1047,19 @@ function normalizeModeAmplitudes() {
 
 function animate() {
   requestAnimationFrame(animate);
+  const now = performance.now();
+
+  if (CONFIG.formAnimate) {
+    const dt = lastAnimTime !== null ? (now - lastAnimTime) / 1000 : 0;
+    const loopSec = Math.max(0.1, CONFIG.videoLoopSeconds);
+    formAnimTime = Math.min(formAnimTime + dt * CONFIG.formAnimSpeed, loopSec);
+    const t = formAnimTime / loopSec; // 0..1
+    formProgress = smoothstep(clamp(t * 1.4, 0, 1));
+  } else {
+    formProgress = null;
+  }
+
+  lastAnimTime = now;
   updateParticles();
   updateLogoParticles();
   updateTextParticles();
@@ -1398,6 +1467,15 @@ function clearImageData() {
   if (refreshUI) refreshUI();
 }
 
+function clearTextData() {
+  textImageSource = null;
+  textPointCloud = null;
+  textTargets = null;
+  if (!imageTargets) CONFIG.imageMode = false;
+  syncLogoVisibility();
+  if (refreshUI) refreshUI();
+}
+
 function snapParticlesToImage() {
   if (
     !imageTargets ||
@@ -1528,14 +1606,28 @@ function onKeyDown(event) {
   if (key === "r") randomizeAll();
   if (key === "s") saveImage({ useViewport: false });
   if (key === "c") saveImage({ useViewport: true });
-  if (key === "h" && pane) pane.hidden = !pane.hidden;
+  if (key === "v") recordVideoLoop();
+  if (key === "h" && pane) {
+    const nextHidden = !pane.hidden;
+    pane.hidden = nextHidden;
+    if (paneSecondary) paneSecondary.hidden = nextHidden;
+  }
 }
 
 function setupGUI() {
-  pane = new Pane({ title: "Controls" });
+  const panesWrapper = document.createElement("div");
+  panesWrapper.className = "tp-columns";
+  document.body.appendChild(panesWrapper);
+
+  pane = new Pane({ title: "Controls", container: panesWrapper });
+  paneSecondary = new Pane({ title: "Logo & Text", container: panesWrapper });
+
   pane.element.classList.add("tp-minimal");
+  paneSecondary.element.classList.add("tp-minimal", "tp-minimal-secondary");
   pane.registerPlugin(EssentialsPlugin);
   pane.registerPlugin(InfodumpPlugin);
+  paneSecondary.registerPlugin(EssentialsPlugin);
+  paneSecondary.registerPlugin(InfodumpPlugin);
   const inputs = [];
 
   const legendStyle = document.createElement("style");
@@ -1597,6 +1689,12 @@ function setupGUI() {
 <text x="12" y="16.5" font-family="sans-serif" font-size="13" font-weight="600" fill="#AFCEA1" text-anchor="middle">C</text>
 </svg>
 `,
+    keyV: `
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+<rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke="#B8B8B8"/>
+<text x="12" y="16.5" font-family="sans-serif" font-size="13" font-weight="600" fill="#AFCEA1" text-anchor="middle">V</text>
+</svg>
+`,
     keyH: `
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 <rect x="2.5" y="2.5" width="19" height="19" rx="2.5" stroke="#B8B8B8"/>
@@ -1619,6 +1717,7 @@ function setupGUI() {
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyR}</span><span>R: randomize all</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyS}</span><span>S: save image</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyC}</span><span>C: save current view</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyV}</span><span>V: record video loop</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyH}</span><span>H: toggle controls</span></div>
   `;
   const container = shortcutsFolder.element.querySelector(".tp-fldv_c");
@@ -1718,6 +1817,14 @@ function setupGUI() {
       })
       .on("change", () => rebuildParticles()),
   );
+  inputs.push(
+    motionFolder.addBinding(CONFIG, "loopRespawnChance", {
+      min: 0.0,
+      max: 0.02,
+      step: 0.0001,
+      label: "Respawn",
+    }),
+  );
 
   const wavesFolder = pane.addFolder({ title: "Waves" });
   inputs.push(
@@ -1800,7 +1907,7 @@ function setupGUI() {
       }),
   );
 
-  const imageFolder = pane.addFolder({ title: "Logo" });
+  const imageFolder = paneSecondary.addFolder({ title: "Logo" });
   imageFolder.addButton({ title: "Upload logo" }).on("click", () => {
     promptImageUpload();
   });
@@ -1957,7 +2064,7 @@ function setupGUI() {
     }),
   );
 
-  const textFolder = pane.addFolder({ title: "Text" });
+  const textFolder = paneSecondary.addFolder({ title: "Text" });
   inputs.push(
     textFolder
       .addBinding(CONFIG, "textValue", {
@@ -2056,6 +2163,9 @@ function setupGUI() {
   textFolder.addButton({ title: "Apply text" }).on("click", () => {
     applyTextSource();
   });
+  textFolder.addButton({ title: "Remove text" }).on("click", () => {
+    clearTextData();
+  });
 
   const captureFolder = pane.addFolder({ title: "Capture" });
   inputs.push(
@@ -2113,6 +2223,30 @@ function setupGUI() {
   captureFolder
     .addButton({ title: "Save current view" })
     .on("click", () => saveImage({ useViewport: true }));
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "videoLoopSeconds", {
+      min: 1,
+      max: 12,
+      step: 0.5,
+      label: "Duration (sec)",
+    }),
+  );
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "formAnimate", {
+      label: "Animate formation",
+    }),
+  );
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "formAnimSpeed", {
+      min: 0.25,
+      max: 4.0,
+      step: 0.25,
+      label: "Formation speed",
+    }),
+  );
+  captureFolder
+    .addButton({ title: "Save video" })
+    .on("click", () => recordVideoLoop());
 
   refreshUI = () => inputs.forEach((input) => input.refresh());
   particlesFolder.expanded = true;
@@ -2193,6 +2327,226 @@ function saveImage({ useViewport = false } = {}) {
     applyCameraFromControl(CONFIG.cameraControl);
   }
   onWindowResize();
+}
+
+function getSupportedVideoMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  const options = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+  for (const option of options) {
+    if (MediaRecorder.isTypeSupported(option)) return option;
+  }
+  return "";
+}
+
+function ensureCaptureStatusEl() {
+  if (captureStatusEl) return captureStatusEl;
+  const el = document.createElement("div");
+  el.style.position = "fixed";
+  el.style.left = "12px";
+  el.style.bottom = "12px";
+  el.style.padding = "8px 10px";
+  el.style.borderRadius = "6px";
+  el.style.background = "rgba(0,0,0,0.75)";
+  el.style.color = "#d6e8c5";
+  el.style.font = "12px/1.2 ui-sans-serif, system-ui, -apple-system, Segoe UI";
+  el.style.zIndex = "9999";
+  el.style.pointerEvents = "none";
+  el.style.opacity = "0";
+  el.style.transition = "opacity 0.15s ease";
+  document.body.appendChild(el);
+  captureStatusEl = el;
+  return el;
+}
+
+function setCaptureStatus(message, timeoutMs = 1600) {
+  const el = ensureCaptureStatusEl();
+  el.textContent = message;
+  el.style.opacity = "1";
+  if (captureStatusTimer) {
+    clearTimeout(captureStatusTimer);
+    captureStatusTimer = null;
+  }
+  if (timeoutMs > 0) {
+    captureStatusTimer = window.setTimeout(() => {
+      if (!captureStatusEl) return;
+      captureStatusEl.style.opacity = "0";
+      captureStatusTimer = null;
+    }, timeoutMs);
+  }
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function stopVideoLoopRecording() {
+  if (videoRecordingTimer) {
+    clearTimeout(videoRecordingTimer);
+    videoRecordingTimer = null;
+  }
+  if (videoRecorder && videoRecorder.state !== "inactive") {
+    videoRecorder.stop();
+  }
+}
+
+function recordVideoLoop() {
+  if (!renderer || !renderer.domElement) return;
+  if (videoRecorder && videoRecorder.state === "recording") {
+    setCaptureStatus("Recording already in progress");
+    return;
+  }
+  if (CONFIG.formAnimate) {
+    scatterParticles();
+    formAnimTime = 0;
+  }
+
+  if (typeof MediaRecorder === "undefined") {
+    setCaptureStatus("Video recording unsupported");
+    window.alert("Video recording is not supported in this browser.");
+    return;
+  }
+  if (typeof renderer.domElement.captureStream !== "function") {
+    setCaptureStatus("Canvas capture unsupported");
+    window.alert("Canvas stream capture is not available in this browser.");
+    return;
+  }
+
+  const durationSeconds = clamp(Number(CONFIG.videoLoopSeconds) || 6, 1, 12);
+  const fps = clamp(Math.round(Number(CONFIG.videoFps) || 30), 12, 60);
+  const mimeType = getSupportedVideoMimeType();
+  const targetWidth = Math.max(
+    16,
+    Math.round(Number(CONFIG.videoWidth) || 1920),
+  );
+  const targetHeight = Math.max(
+    16,
+    Math.round(Number(CONFIG.videoHeight) || 1080),
+  );
+  const oldSize = new THREE.Vector2();
+  renderer.getSize(oldSize);
+  const oldPixelRatio = renderer.getPixelRatio();
+  const oldPointSize = points.material.size;
+  const oldLogoPointSize = logoPoints ? logoPoints.material.size : 0;
+  const oldTextPointSize = textPoints ? textPoints.material.size : 0;
+  let captureStateApplied = false;
+
+  const restoreAfterCapture = () => {
+    if (!captureStateApplied) return;
+    captureStateApplied = false;
+    points.material.size = oldPointSize;
+    if (logoPoints) logoPoints.material.size = oldLogoPointSize;
+    if (textPoints) textPoints.material.size = oldTextPointSize;
+    renderer.setPixelRatio(oldPixelRatio);
+    renderer.setSize(oldSize.x, oldSize.y, false);
+    onWindowResize();
+  };
+
+  renderer.setPixelRatio(1);
+  renderer.setSize(targetWidth, targetHeight, false);
+  {
+    const aspect = targetWidth / targetHeight;
+    const frustumSize = CONFIG.viewScale * 2;
+    camera.left = (-frustumSize * aspect) / 2;
+    camera.right = (frustumSize * aspect) / 2;
+    camera.top = frustumSize / 2;
+    camera.bottom = -frustumSize / 2;
+    camera.updateProjectionMatrix();
+  }
+  const pointScale = targetWidth / Math.max(1, oldSize.x);
+  points.material.size = oldPointSize * pointScale;
+  if (logoPoints) logoPoints.material.size = oldLogoPointSize * pointScale;
+  if (textPoints) textPoints.material.size = oldTextPointSize * pointScale;
+  captureStateApplied = true;
+
+  const stream = renderer.domElement.captureStream(fps);
+  const startTimestamp = Date.now();
+  let recorder;
+
+  videoRecordingChunks = [];
+
+  try {
+    recorder = mimeType
+      ? new MediaRecorder(stream, {
+          mimeType,
+          videoBitsPerSecond: 12000000,
+        })
+      : new MediaRecorder(stream, {
+          videoBitsPerSecond: 12000000,
+        });
+  } catch (error) {
+    console.error("Could not start MediaRecorder", error);
+    stream.getTracks().forEach((track) => track.stop());
+    restoreAfterCapture();
+    videoRecorder = null;
+    setCaptureStatus("Video recorder failed");
+    window.alert("Could not start recording in this browser.");
+    return;
+  }
+
+  videoRecorder = recorder;
+
+  recorder.addEventListener("dataavailable", (event) => {
+    if (event.data && event.data.size > 0) {
+      videoRecordingChunks.push(event.data);
+    }
+  });
+
+  recorder.addEventListener("stop", () => {
+    stream.getTracks().forEach((track) => track.stop());
+    restoreAfterCapture();
+    if (videoRecordingTimer) {
+      clearTimeout(videoRecordingTimer);
+      videoRecordingTimer = null;
+    }
+
+    if (!videoRecordingChunks.length) {
+      videoRecorder = null;
+      return;
+    }
+
+    const actualMime = recorder.mimeType || mimeType || "video/webm";
+    const extension = actualMime.includes("mp4") ? "mp4" : "webm";
+    const blob = new Blob(videoRecordingChunks, { type: actualMime });
+    downloadBlob(
+      blob,
+      `chladni-loop-${startTimestamp}-${targetWidth}x${targetHeight}.${extension}`,
+    );
+    setCaptureStatus("Video saved");
+
+    videoRecordingChunks = [];
+    if (videoRecorder === recorder) videoRecorder = null;
+  });
+
+  recorder.addEventListener("error", (event) => {
+    console.error("MediaRecorder error", event);
+    stream.getTracks().forEach((track) => track.stop());
+    restoreAfterCapture();
+    if (videoRecordingTimer) {
+      clearTimeout(videoRecordingTimer);
+      videoRecordingTimer = null;
+    }
+    videoRecordingChunks = [];
+    if (videoRecorder === recorder) videoRecorder = null;
+    setCaptureStatus("Video recording failed");
+  });
+
+  recorder.start(250);
+  setCaptureStatus(`Recording video ${targetWidth}x${targetHeight}...`, 0);
+  videoRecordingTimer = window.setTimeout(
+    () => {
+      stopVideoLoopRecording();
+    },
+    Math.round(durationSeconds * 1000),
+  );
 }
 
 function randomizeWaves(rebuild = true) {
