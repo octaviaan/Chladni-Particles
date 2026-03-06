@@ -11,21 +11,22 @@ const CONFIG = {
   jitter: 0.07,
   drag: 0.85,
   speedLimit: 2.0,
-  loopRespawnChance: 0.002,
   viewScale: 400,
   color: "#4f4030",
+  backgroundColor: "#1C1A17",
   particleSize: 2.0,
   particleOpacity: 0.7,
   cameraControl: { x: 0, y: 0, z: 1.5 },
   cameraDefault: { x: 0, y: 0, z: 1.5 },
   exportBaseSize: 2048,
-  exportOpaque: false,
-  videoLoopSeconds: 6,
-  videoFps: 30,
-  videoWidth: 1920,
-  videoHeight: 1080,
+  videoLoopSeconds: 5,
+  videoFps: 12,
+  videoWidth: 1280,
+  videoHeight: 720,
+  gifScale: 0.7,
+  gifQuality: 50,
   formAnimate: false,
-  formAnimSpeed: 1.0,
+  formAnimSpeed: 2.0,
 
   modeCount: 6,
   mRange: { min: 2, max: 6 },
@@ -45,20 +46,21 @@ const CONFIG = {
   imageBlend: 1.0,
   imageStyle: "Fill",
   imageThreshold: 0.7,
+  imageMaskMode: "Auto",
   imageInvert: false,
   imageScale: 0.7,
   iconOffsetX: 0,
   logoParticleCount: 50000,
-  logoParticleSize: 2.0,
-  logoParticleOpacity: 0.85,
+  logoParticleSize: 3.0,
+  logoParticleOpacity: 0.9,
   logoColor: "#ffffff",
   textValue: "Gitcoin",
   textAlign: "Center",
   textFontSize: 180,
   textLineWidth: 0.9,
   textOffsetX: 0,
-  textParticleCount: 50000,
-  textParticleSize: 2.0,
+  textParticleCount: 100000,
+  textParticleSize: 4.0,
   textParticleOpacity: 0.85,
   textColor: "#ffffff",
 };
@@ -294,6 +296,18 @@ const WAVE_FUNCTIONS = {
       ) * 0.5;
     return Math.sin(mode.n * Math.PI * r + mode.px);
   },
+  TriSineX: (cx, cy, mode) => {
+    const rx = cx * mode.cos - cy * mode.sin;
+    const ry = cx * mode.sin + cy * mode.cos;
+    const a = mode.m * Math.PI;
+    const b = mode.n * Math.PI;
+    const c = ((mode.m + mode.n) * 0.5 + 0.5) * Math.PI;
+    return (
+      Math.sin(a * rx + mode.px) +
+      Math.sin(b * ry + mode.py) +
+      Math.sin(c * rx + mode.px * 0.5 + mode.py * 0.5)
+    );
+  },
   Voronoi: (cx, cy, mode) => {
     let minD = 1e9;
     for (let j = 0; j < 6; j++) {
@@ -319,9 +333,7 @@ const WAVE_FUNCTIONS = {
 
 const WAVE_TYPE_KEYS = Object.keys(WAVE_FUNCTIONS);
 const ACCENT_COLOR = new THREE.Color("#02E2AC");
-const ACCENT_COLOR_RATIO = 0.1;
-const YELLOW_COLOR = new THREE.Color("#ffe997");
-const YELLOW_COLOR_RATIO = 0.05;
+const ACCENT_COLOR_RATIO = 0.05;
 const IMAGE_ATTRACT_STRENGTH = 0.03;
 const TEXT_FONT_FAMILY = '"BDO Grotesk", sans-serif';
 
@@ -343,9 +355,14 @@ let imagePointCloud = null;
 let imageTargets = null;
 let textPointCloud = null;
 let textTargets = null;
-let videoRecorder = null;
-let videoRecordingTimer = null;
-let videoRecordingChunks = [];
+let gifRecorder = null;
+let gifRecordingTimer = null;
+let gifFrameTimer = null;
+let gifLibraryPromise = null;
+let gifIsRendering = false;
+let webmRecorder = null;
+let webmRecordingTimer = null;
+let webmRecordingChunks = [];
 let captureStatusEl = null;
 let captureStatusTimer = null;
 
@@ -392,7 +409,7 @@ function init() {
   });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x000000, 1);
+  renderer.setClearColor(CONFIG.backgroundColor, 1);
   document.body.appendChild(renderer.domElement);
 
   buildParticles();
@@ -494,11 +511,7 @@ function buildParticles() {
 
     const colorRoll = Math.random();
     const particleColor =
-      colorRoll < YELLOW_COLOR_RATIO
-        ? YELLOW_COLOR
-        : colorRoll < YELLOW_COLOR_RATIO + ACCENT_COLOR_RATIO
-          ? ACCENT_COLOR
-          : baseColor;
+      colorRoll < ACCENT_COLOR_RATIO ? ACCENT_COLOR : baseColor;
     colors[i * 3 + 0] = particleColor.r;
     colors[i * 3 + 1] = particleColor.g;
     colors[i * 3 + 2] = particleColor.b;
@@ -568,6 +581,8 @@ function rebuildParticles() {
   points.geometry = geometry;
   oldGeometry.dispose();
   applyParticleColor(CONFIG.color);
+  resetLogoParticles();
+  resetTextParticles();
 }
 
 function resetParticles() {
@@ -595,6 +610,90 @@ function resetParticles() {
   }
 
   geometry.attributes.position.needsUpdate = true;
+  resetLogoParticles();
+  resetTextParticles();
+}
+
+function resetLogoParticles() {
+  if (
+    !logoPositions ||
+    !logoVelocities ||
+    !logoGeometry?.attributes?.position
+  ) {
+    return;
+  }
+
+  const hasTargets =
+    imageTargets &&
+    imageTargets.length === logoVelocities.length &&
+    imageTargets.length > 0;
+  if (hasTargets) {
+    snapParticlesToImage();
+    return;
+  }
+
+  const count = Math.min(
+    Math.floor(logoPositions.length / 3),
+    Math.floor(logoVelocities.length / 2),
+  );
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const i2 = i * 2;
+    logoPositions[i3] = (Math.random() - 0.5) * 2 * range;
+    logoPositions[i3 + 1] = (Math.random() - 0.5) * 2 * rectRy;
+    logoPositions[i3 + 2] = 0;
+    logoVelocities[i2] = 0;
+    logoVelocities[i2 + 1] = 0;
+  }
+
+  logoGeometry.attributes.position.needsUpdate = true;
+  syncLogoVisibility();
+}
+
+function resetTextParticles() {
+  if (
+    !textPositions ||
+    !textVelocities ||
+    !textGeometry?.attributes?.position
+  ) {
+    return;
+  }
+
+  const hasTargets =
+    textTargets &&
+    textTargets.length === textVelocities.length &&
+    textTargets.length > 0;
+  if (hasTargets) {
+    snapParticlesToText();
+    return;
+  }
+
+  const count = Math.min(
+    Math.floor(textPositions.length / 3),
+    Math.floor(textVelocities.length / 2),
+  );
+  const range = CONFIG.viewScale;
+  const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
+
+  for (let i = 0; i < count; i++) {
+    const i3 = i * 3;
+    const i2 = i * 2;
+    textPositions[i3] = (Math.random() - 0.5) * 2 * range;
+    textPositions[i3 + 1] = (Math.random() - 0.5) * 2 * rectRy;
+    textPositions[i3 + 2] = 0;
+    textVelocities[i2] = 0;
+    textVelocities[i2 + 1] = 0;
+  }
+
+  textGeometry.attributes.position.needsUpdate = true;
+  syncLogoVisibility();
+}
+
+function resetAllParticles() {
+  resetParticles();
 }
 
 function rebuildLogoParticles() {
@@ -637,11 +736,7 @@ function applyParticleColor(hex) {
     const i3 = i * 3;
     const colorRoll = Math.random();
     const particleColor =
-      colorRoll < YELLOW_COLOR_RATIO
-        ? YELLOW_COLOR
-        : colorRoll < YELLOW_COLOR_RATIO + ACCENT_COLOR_RATIO
-          ? ACCENT_COLOR
-          : nextColor;
+      colorRoll < ACCENT_COLOR_RATIO ? ACCENT_COLOR : nextColor;
     colors[i3] = particleColor.r;
     colors[i3 + 1] = particleColor.g;
     colors[i3 + 2] = particleColor.b;
@@ -671,6 +766,11 @@ function syncLogoVisibility() {
     !!CONFIG.imageMode && !!hasLogoTargets && CONFIG.logoParticleOpacity > 0;
   textPoints.visible =
     !!CONFIG.imageMode && !!hasTextTargets && CONFIG.textParticleOpacity > 0;
+}
+
+function refreshImageModeFromTargets() {
+  CONFIG.imageMode = !!imageTargets || !!textTargets;
+  syncLogoVisibility();
 }
 
 function rebuildField() {
@@ -728,6 +828,9 @@ function rebuildField() {
       gradY[idx] = (eD - eU) / (2 * cellSize);
     }
   }
+
+  resetLogoParticles();
+  resetTextParticles();
 }
 
 function scatterParticles() {
@@ -776,7 +879,6 @@ function stepSimulation(pos, vel, count, targets) {
   const drag = CONFIG.drag;
   const limit = CONFIG.speedLimit;
   const limitSq = limit * limit;
-  const loopRespawnChance = clamp(CONFIG.loopRespawnChance || 0, 0, 1);
 
   const gridScale = (G - 1) / fullRange;
   const rectRy = Math.max(1, Math.round(range / CONFIG.rectAspect));
@@ -785,7 +887,6 @@ function stepSimulation(pos, vel, count, targets) {
   let fieldMult = 1.0;
   let targetMult = 0.0;
   let jitterMult = 1.0;
-  let allowLoopRespawn = true;
 
   if (targets) {
     useTargets = true;
@@ -795,7 +896,6 @@ function stepSimulation(pos, vel, count, targets) {
     // When particles are driven to image/text targets, reduce random noise
     // so they can settle instead of endlessly re-attracting.
     jitterMult = 1.0 - blend;
-    allowLoopRespawn = false;
   }
 
   if (formProgress !== null) {
@@ -812,10 +912,10 @@ function stepSimulation(pos, vel, count, targets) {
     let vx = vel[i2];
     let vy = vel[i2 + 1];
 
-    // Boundary check & Respawn
+    // Keep particles within the simulation bounds without random respawn.
     if (x < -range || x > range || y < -rectRy || y > rectRy) {
-      x = (Math.random() - 0.5) * 2 * range;
-      y = (Math.random() - 0.5) * 2 * rectRy;
+      x = clamp(x, -range, range);
+      y = clamp(y, -rectRy, rectRy);
       vx = 0;
       vy = 0;
     }
@@ -859,13 +959,6 @@ function stepSimulation(pos, vel, count, targets) {
 
     vx *= drag;
     vy *= drag;
-
-    if (allowLoopRespawn && Math.random() < loopRespawnChance) {
-      x = (Math.random() - 0.5) * 2 * range;
-      y = (Math.random() - 0.5) * 2 * rectRy;
-      vx = 0;
-      vy = 0;
-    }
 
     const speedSq = vx * vx + vy * vy;
 
@@ -1297,16 +1390,35 @@ function createPointCloudFromSource(source, offsetX) {
   const pixelCount = width * height;
   const baseMask = new Uint8Array(pixelCount);
   let transparentPixels = 0;
+  let opaquePixels = 0;
+  let minBrightness = 1;
+  let maxBrightness = 0;
 
   for (let i = 0; i < pixelCount; i++) {
-    const alpha = pixels[i * 4 + 3] / 255;
-    if (alpha <= alphaCutoff) transparentPixels++;
+    const idx = i * 4;
+    const alpha = pixels[idx + 3] / 255;
+    if (alpha <= alphaCutoff) {
+      transparentPixels++;
+      continue;
+    }
+    const brightness = (pixels[idx] + pixels[idx + 1] + pixels[idx + 2]) / 765;
+    if (brightness < minBrightness) minBrightness = brightness;
+    if (brightness > maxBrightness) maxBrightness = brightness;
+    opaquePixels++;
   }
 
-  // If the image has meaningful transparency, alpha carries the shape better
-  // than luminance (e.g. white logos on transparent backgrounds).
-  const useAlphaMask =
+  const hasMeaningfulTransparency =
     transparentPixels > 0 && transparentPixels / pixelCount > 0.01;
+  const luminanceSpread = opaquePixels > 0 ? maxBrightness - minBrightness : 0;
+  // Auto mode favors alpha only when transparency defines the silhouette and
+  // opaque pixels do not have strong brightness contrast.
+  const autoUseAlphaMask = hasMeaningfulTransparency && luminanceSpread < 0.2;
+  const useAlphaMask =
+    CONFIG.imageMaskMode === "Alpha"
+      ? true
+      : CONFIG.imageMaskMode === "Luminance"
+        ? false
+        : autoUseAlphaMask;
   const alphaThreshold = 1 - threshold;
 
   for (let i = 0; i < pixelCount; i++) {
@@ -1713,11 +1825,11 @@ function setupGUI() {
   legend.innerHTML = `
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.wheel}</span><span>Wheel: zoom</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.drag}</span><span>Drag: pan</span></div>
-    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.dbl}</span><span>Double click: reset postion</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.dbl}</span><span>Double click: reset position</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyR}</span><span>R: randomize all</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyS}</span><span>S: save image</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyC}</span><span>C: save current view</span></div>
-    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyV}</span><span>V: record video loop</span></div>
+    <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyV}</span><span>V: save GIF loop</span></div>
     <div class="tp-legend-row"><span class="tp-legend-ico">${svgs.keyH}</span><span>H: toggle controls</span></div>
   `;
   const container = shortcutsFolder.element.querySelector(".tp-fldv_c");
@@ -1738,9 +1850,9 @@ function setupGUI() {
     view: "infodump",
     markdown: true,
     content: [
-      "**Waves:** Start with `Wave A`, `Wave B`, and `Mix` to shape the background plate pattern.",
-      "**Motion:** Increase `Settle` for sharper nodes, then balance with `Jitter`.",
-      "**Logo mode:** Upload a logo, if it is not displayed correctly, use Invert, tune `Image mix` and `Threshold`.",
+      "**Waves + Modes:** Pick `Wave A`, `Wave B`, `Mix`, then adjust `modeCount`/ranges. Use `Randomize All` (or `R`) to quickly explore.",
+      "**Logo/Text mask:** Upload a logo or add text. `Mask` supports `Auto`, `Alpha`, `Luminance`. If targets vanish, lower `Threshold` or switch mask mode.",
+      "**Capture:** `Image resolution` controls PNG width. Use `Save GIF` (`Duration`, `GIF fps`, `GIF scale`, `GIF compression`) or `Save WebM` for video.",
     ].join("\n\n"),
   });
 
@@ -1749,7 +1861,7 @@ function setupGUI() {
     particlesFolder
       .addBinding(CONFIG, "particleCount", {
         min: 50000,
-        max: 1000000,
+        max: 500000,
         step: 10000,
         label: "Count",
       })
@@ -1817,14 +1929,6 @@ function setupGUI() {
       })
       .on("change", () => rebuildParticles()),
   );
-  inputs.push(
-    motionFolder.addBinding(CONFIG, "loopRespawnChance", {
-      min: 0.0,
-      max: 0.02,
-      step: 0.0001,
-      label: "Respawn",
-    }),
-  );
 
   const wavesFolder = pane.addFolder({ title: "Waves" });
   inputs.push(
@@ -1871,10 +1975,6 @@ function setupGUI() {
         rebuildField();
       }),
   );
-  wavesFolder.addButton({ title: "Randomize waves" }).on("click", () => {
-    randomizeWaves();
-  });
-
   const modesFolder = pane.addFolder({ title: "Modes" });
   inputs.push(
     modesFolder
@@ -1906,6 +2006,9 @@ function setupGUI() {
         }
       }),
   );
+  modesFolder.addButton({ title: "Randomize All" }).on("click", () => {
+    randomizeAll();
+  });
 
   const imageFolder = paneSecondary.addFolder({ title: "Logo" });
   imageFolder.addButton({ title: "Upload logo" }).on("click", () => {
@@ -1931,7 +2034,7 @@ function setupGUI() {
           rebuildTextTargets();
           if (CONFIG.imageMode) snapParticlesToText();
         }
-        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
+        refreshImageModeFromTargets();
       }),
   );
   inputs.push(
@@ -1948,6 +2051,7 @@ function setupGUI() {
           rebuildImageTargets();
           if (CONFIG.imageMode) snapParticlesToImage();
         }
+        refreshImageModeFromTargets();
       }),
   );
   inputs.push(
@@ -2012,7 +2116,30 @@ function setupGUI() {
           rebuildTextTargets();
           if (CONFIG.imageMode) snapParticlesToText();
         }
-        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
+        refreshImageModeFromTargets();
+      }),
+  );
+  inputs.push(
+    imageFolder
+      .addBinding(CONFIG, "imageMaskMode", {
+        options: {
+          Auto: "Auto",
+          Alpha: "Alpha",
+          Luminance: "Luminance",
+        },
+        label: "Mask",
+      })
+      .on("change", () => {
+        if (!hasImageSources()) return;
+        if (rebuildImagePointCloud()) {
+          rebuildImageTargets();
+          if (CONFIG.imageMode) snapParticlesToImage();
+        }
+        if (rebuildTextPointCloud()) {
+          rebuildTextTargets();
+          if (CONFIG.imageMode) snapParticlesToText();
+        }
+        refreshImageModeFromTargets();
       }),
   );
   inputs.push(
@@ -2034,7 +2161,7 @@ function setupGUI() {
           rebuildTextTargets();
           if (CONFIG.imageMode) snapParticlesToText();
         }
-        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
+        refreshImageModeFromTargets();
       }),
   );
   inputs.push(
@@ -2052,7 +2179,7 @@ function setupGUI() {
           rebuildTextTargets();
           if (CONFIG.imageMode) snapParticlesToText();
         }
-        if (!imageTargets && !textTargets) CONFIG.imageMode = false;
+        refreshImageModeFromTargets();
       }),
   );
   inputs.push(
@@ -2114,8 +2241,8 @@ function setupGUI() {
   inputs.push(
     textFolder
       .addBinding(CONFIG, "textParticleCount", {
-        min: 1000,
-        max: 100000,
+        min: 10000,
+        max: 200000,
         step: 1000,
         label: "Particle count",
       })
@@ -2174,34 +2301,9 @@ function setupGUI() {
         min: 1024,
         max: 7168,
         step: 512,
+        label: "Image resolution",
       })
       .on("change", () => rebuildParticles()),
-  );
-  inputs.push(
-    captureFolder
-      .addBinding(CONFIG, "rectAspect", {
-        view: "radiogrid",
-        groupName: "rect-aspect",
-        size: [2, 1],
-        cells: (x) => {
-          const options = [
-            { title: "Square", value: 1 },
-            { title: "Landscape", value: 1.78 },
-          ];
-          return options[x];
-        },
-        label: "Aspect",
-      })
-      .on("change", () => {
-        rebuildParticles();
-        if (imagePointCloud) rebuildImageTargets();
-        if (textPointCloud) rebuildTextTargets();
-      }),
-  );
-  inputs.push(
-    captureFolder.addBinding(CONFIG, "exportOpaque", {
-      label: "Transparent background",
-    }),
   );
   inputs.push(
     captureFolder
@@ -2212,10 +2314,6 @@ function setupGUI() {
       })
       .on("change", (ev) => applyCameraFromControl(ev.value)),
   );
-
-  captureFolder
-    .addButton({ title: "Randomize All" })
-    .on("click", () => randomizeAll());
 
   captureFolder
     .addButton({ title: "Save image" })
@@ -2232,6 +2330,30 @@ function setupGUI() {
     }),
   );
   inputs.push(
+    captureFolder.addBinding(CONFIG, "videoFps", {
+      min: 6,
+      max: 24,
+      step: 1,
+      label: "GIF fps",
+    }),
+  );
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "gifScale", {
+      min: 0.25,
+      max: 1.0,
+      step: 0.05,
+      label: "GIF scale",
+    }),
+  );
+  inputs.push(
+    captureFolder.addBinding(CONFIG, "gifQuality", {
+      min: 10,
+      max: 60,
+      step: 1,
+      label: "GIF compression",
+    }),
+  );
+  inputs.push(
     captureFolder.addBinding(CONFIG, "formAnimate", {
       label: "Animate formation",
     }),
@@ -2245,8 +2367,11 @@ function setupGUI() {
     }),
   );
   captureFolder
-    .addButton({ title: "Save video" })
+    .addButton({ title: "Save GIF" })
     .on("click", () => recordVideoLoop());
+  captureFolder
+    .addButton({ title: "Save WebM" })
+    .on("click", () => recordWebmLoop());
 
   refreshUI = () => inputs.forEach((input) => input.refresh());
   particlesFolder.expanded = true;
@@ -2277,7 +2402,7 @@ function saveImage({ useViewport = false } = {}) {
 
   renderer.setPixelRatio(1);
   renderer.setSize(exportWidth, exportHeight, false);
-  renderer.setClearColor(oldClearColor, CONFIG.exportOpaque ? 0 : 1);
+  renderer.setClearColor(CONFIG.backgroundColor, 1);
 
   if (!useViewport) {
     const range = CONFIG.viewScale;
@@ -2329,17 +2454,41 @@ function saveImage({ useViewport = false } = {}) {
   onWindowResize();
 }
 
-function getSupportedVideoMimeType() {
-  if (typeof MediaRecorder === "undefined") return "";
-  const options = [
-    "video/webm;codecs=vp9",
-    "video/webm;codecs=vp8",
-    "video/webm",
-  ];
-  for (const option of options) {
-    if (MediaRecorder.isTypeSupported(option)) return option;
+function loadGifLibrary() {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("GIF encoding unavailable"));
   }
-  return "";
+  if (gifLibraryPromise) return gifLibraryPromise;
+
+  const candidates = [
+    "https://cdn.jsdelivr.net/npm/gifenc@1.0.3/+esm",
+    "https://esm.sh/gifenc@1.0.3",
+  ];
+  gifLibraryPromise = (async () => {
+    let lastError = null;
+    for (const url of candidates) {
+      try {
+        const mod = await import(url);
+        const source =
+          mod?.default && typeof mod.default === "object" ? mod.default : mod;
+        const GIFEncoder = source?.GIFEncoder || mod?.GIFEncoder;
+        const quantize = source?.quantize || mod?.quantize;
+        const applyPalette = source?.applyPalette || mod?.applyPalette;
+        if (GIFEncoder && quantize && applyPalette) {
+          return { GIFEncoder, quantize, applyPalette };
+        }
+        lastError = new Error("GIF library missing required exports");
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError || new Error("Failed to load GIF library");
+  })().catch((error) => {
+    gifLibraryPromise = null;
+    throw error;
+  });
+
+  return gifLibraryPromise;
 }
 
 function ensureCaptureStatusEl() {
@@ -2388,30 +2537,256 @@ function downloadBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function stopVideoLoopRecording() {
-  if (videoRecordingTimer) {
-    clearTimeout(videoRecordingTimer);
-    videoRecordingTimer = null;
+function getSupportedWebmMimeType() {
+  if (typeof MediaRecorder === "undefined") return "";
+  const options = [
+    "video/webm;codecs=vp9",
+    "video/webm;codecs=vp8",
+    "video/webm",
+  ];
+  for (const option of options) {
+    if (MediaRecorder.isTypeSupported(option)) return option;
   }
-  if (videoRecorder && videoRecorder.state !== "inactive") {
-    videoRecorder.stop();
+  return "";
+}
+
+function stopVideoLoopRecording() {
+  if (gifRecordingTimer) {
+    clearTimeout(gifRecordingTimer);
+    gifRecordingTimer = null;
+  }
+  if (gifFrameTimer) {
+    clearTimeout(gifFrameTimer);
+    gifFrameTimer = null;
+  }
+  if (gifRecorder) {
+    gifRecorder.cancelled = true;
+    gifRecorder = null;
+    gifIsRendering = false;
+    setCaptureStatus("GIF capture canceled");
   }
 }
 
-function recordVideoLoop() {
+async function recordVideoLoop() {
   if (!renderer || !renderer.domElement) return;
-  if (videoRecorder && videoRecorder.state === "recording") {
+  if (gifRecorder || gifIsRendering || webmRecorder) {
     setCaptureStatus("Recording already in progress");
     return;
   }
+  resetAllParticles();
   if (CONFIG.formAnimate) {
     scatterParticles();
     formAnimTime = 0;
   }
 
+  let gifenc;
+  try {
+    gifenc = await loadGifLibrary();
+  } catch (error) {
+    console.error(error);
+    setCaptureStatus("GIF encoder unavailable");
+    window.alert("Could not load GIF encoder in this browser.");
+    return;
+  }
+  const { GIFEncoder, quantize, applyPalette } = gifenc;
+
+  const durationSeconds = clamp(Number(CONFIG.videoLoopSeconds) || 6, 1, 12);
+  const fps = clamp(Math.round(Number(CONFIG.videoFps) || 12), 6, 24);
+  const gifScale = clamp(Number(CONFIG.gifScale) || 1, 0.25, 1.0);
+  const gifQuality = clamp(Math.round(Number(CONFIG.gifQuality) || 20), 10, 60);
+  const frameDelayMs = Math.max(8, Math.round(1000 / fps));
+  const totalFrames = Math.max(1, Math.round(durationSeconds * fps));
+  const baseWidth = Math.max(16, Math.round(Number(CONFIG.videoWidth) || 1280));
+  const baseHeight = Math.max(
+    16,
+    Math.round(Number(CONFIG.videoHeight) || 720),
+  );
+  const targetWidth = Math.max(16, Math.round(baseWidth * gifScale));
+  const targetHeight = Math.max(16, Math.round(baseHeight * gifScale));
+  const oldSize = new THREE.Vector2();
+  renderer.getSize(oldSize);
+  const oldPixelRatio = renderer.getPixelRatio();
+  const oldPointSize = points.material.size;
+  const oldLogoPointSize = logoPoints ? logoPoints.material.size : 0;
+  const oldTextPointSize = textPoints ? textPoints.material.size : 0;
+  let captureStateApplied = false;
+
+  const restoreAfterCapture = () => {
+    if (!captureStateApplied) return;
+    captureStateApplied = false;
+    points.material.size = oldPointSize;
+    if (logoPoints) logoPoints.material.size = oldLogoPointSize;
+    if (textPoints) textPoints.material.size = oldTextPointSize;
+    renderer.setPixelRatio(oldPixelRatio);
+    renderer.setSize(oldSize.x, oldSize.y, false);
+    onWindowResize();
+  };
+
+  renderer.setPixelRatio(1);
+  renderer.setSize(targetWidth, targetHeight, false);
+  {
+    const aspect = targetWidth / targetHeight;
+    const frustumSize = CONFIG.viewScale * 2;
+    camera.left = (-frustumSize * aspect) / 2;
+    camera.right = (frustumSize * aspect) / 2;
+    camera.top = frustumSize / 2;
+    camera.bottom = -frustumSize / 2;
+    camera.updateProjectionMatrix();
+  }
+  const pointScale = targetWidth / Math.max(1, oldSize.x);
+  points.material.size = oldPointSize * pointScale;
+  if (logoPoints) logoPoints.material.size = oldLogoPointSize * pointScale;
+  if (textPoints) textPoints.material.size = oldTextPointSize * pointScale;
+  captureStateApplied = true;
+
+  const startTimestamp = Date.now();
+  const state = { cancelled: false };
+  gifRecorder = state;
+  gifIsRendering = true;
+
+  const tempCanvas = document.createElement("canvas");
+  tempCanvas.width = targetWidth;
+  tempCanvas.height = targetHeight;
+  const tempCtx = tempCanvas.getContext("2d", { willReadFrequently: true });
+  if (!tempCtx) {
+    restoreAfterCapture();
+    gifRecorder = null;
+    gifIsRendering = false;
+    setCaptureStatus("GIF context unavailable");
+    return;
+  }
+
+  let encoder;
+  try {
+    encoder = GIFEncoder();
+  } catch (error) {
+    console.error("Could not start GIF encoder", error);
+    restoreAfterCapture();
+    gifRecorder = null;
+    gifIsRendering = false;
+    setCaptureStatus("GIF encoder failed");
+    window.alert("Could not start GIF export in this browser.");
+    return;
+  }
+
+  let capturedFrames = 0;
+  let palette = null;
+  const maxColors = clamp(
+    Math.round(256 / Math.pow(2, (gifQuality - 10) / 10)),
+    8,
+    256,
+  );
+  const paletteFormat = gifQuality >= 20 ? "rgb444" : "rgb565";
+
+  const finishCapture = () => {
+    if (gifRecordingTimer) {
+      clearTimeout(gifRecordingTimer);
+      gifRecordingTimer = null;
+    }
+    if (gifFrameTimer) {
+      clearTimeout(gifFrameTimer);
+      gifFrameTimer = null;
+    }
+    if (!state.cancelled) {
+      try {
+        encoder.finish();
+        const bytes =
+          typeof encoder.bytesView === "function"
+            ? encoder.bytesView()
+            : encoder.bytes();
+        const blob = new Blob([bytes], { type: "image/gif" });
+        downloadBlob(
+          blob,
+          `chladni-loop-${startTimestamp}-${targetWidth}x${targetHeight}.gif`,
+        );
+        setCaptureStatus("GIF saved");
+      } catch (error) {
+        console.error("GIF finalization failed", error);
+        setCaptureStatus("GIF export failed");
+      }
+    }
+    if (gifRecorder === state) {
+      gifRecorder = null;
+    }
+    gifIsRendering = false;
+    restoreAfterCapture();
+  };
+
+  const captureFrame = () => {
+    if (state.cancelled) {
+      finishCapture();
+      return;
+    }
+    try {
+      renderer.render(scene, camera);
+      tempCtx.clearRect(0, 0, targetWidth, targetHeight);
+      tempCtx.drawImage(renderer.domElement, 0, 0, targetWidth, targetHeight);
+      const rgba = tempCtx.getImageData(0, 0, targetWidth, targetHeight).data;
+
+      if (!palette) {
+        palette = quantize(rgba, maxColors, { format: paletteFormat });
+      }
+      const index = applyPalette(rgba, palette, paletteFormat);
+      encoder.writeFrame(index, targetWidth, targetHeight, {
+        palette,
+        delay: frameDelayMs,
+        repeat: 0,
+      });
+    } catch (error) {
+      console.error("GIF frame encoding failed", error);
+      state.cancelled = true;
+      setCaptureStatus("GIF recording failed");
+      finishCapture();
+      return;
+    }
+
+    capturedFrames++;
+    if (capturedFrames >= totalFrames) {
+      finishCapture();
+      return;
+    }
+    setCaptureStatus(`Recording GIF ${capturedFrames}/${totalFrames}...`, 0);
+    gifFrameTimer = window.setTimeout(captureFrame, frameDelayMs);
+  };
+
+  gifRecordingTimer = window.setTimeout(
+    () => {
+      if (!state.cancelled) {
+        state.cancelled = true;
+        setCaptureStatus("GIF capture timeout");
+      }
+      finishCapture();
+    },
+    Math.round(durationSeconds * 1000 * 2.5),
+  );
+  setCaptureStatus(`Recording GIF 0/${totalFrames}...`, 0);
+  captureFrame();
+}
+
+function stopWebmLoopRecording() {
+  if (webmRecordingTimer) {
+    clearTimeout(webmRecordingTimer);
+    webmRecordingTimer = null;
+  }
+  if (webmRecorder && webmRecorder.state !== "inactive") {
+    webmRecorder.stop();
+  }
+}
+
+function recordWebmLoop() {
+  if (!renderer || !renderer.domElement) return;
+  if (gifRecorder || gifIsRendering || webmRecorder) {
+    setCaptureStatus("Recording already in progress");
+    return;
+  }
+  resetAllParticles();
+  if (CONFIG.formAnimate) {
+    scatterParticles();
+    formAnimTime = 0;
+  }
   if (typeof MediaRecorder === "undefined") {
-    setCaptureStatus("Video recording unsupported");
-    window.alert("Video recording is not supported in this browser.");
+    setCaptureStatus("WebM recording unsupported");
+    window.alert("WebM recording is not supported in this browser.");
     return;
   }
   if (typeof renderer.domElement.captureStream !== "function") {
@@ -2421,15 +2796,15 @@ function recordVideoLoop() {
   }
 
   const durationSeconds = clamp(Number(CONFIG.videoLoopSeconds) || 6, 1, 12);
-  const fps = clamp(Math.round(Number(CONFIG.videoFps) || 30), 12, 60);
-  const mimeType = getSupportedVideoMimeType();
+  const fps = clamp(Math.round(Number(CONFIG.videoFps) || 12), 6, 60);
+  const mimeType = getSupportedWebmMimeType();
   const targetWidth = Math.max(
     16,
-    Math.round(Number(CONFIG.videoWidth) || 1920),
+    Math.round(Number(CONFIG.videoWidth) || 1280),
   );
   const targetHeight = Math.max(
     16,
-    Math.round(Number(CONFIG.videoHeight) || 1080),
+    Math.round(Number(CONFIG.videoHeight) || 720),
   );
   const oldSize = new THREE.Vector2();
   renderer.getSize(oldSize);
@@ -2471,8 +2846,7 @@ function recordVideoLoop() {
   const startTimestamp = Date.now();
   let recorder;
 
-  videoRecordingChunks = [];
-
+  webmRecordingChunks = [];
   try {
     recorder = mimeType
       ? new MediaRecorder(stream, {
@@ -2483,68 +2857,61 @@ function recordVideoLoop() {
           videoBitsPerSecond: 12000000,
         });
   } catch (error) {
-    console.error("Could not start MediaRecorder", error);
+    console.error("Could not start WebM recorder", error);
     stream.getTracks().forEach((track) => track.stop());
     restoreAfterCapture();
-    videoRecorder = null;
-    setCaptureStatus("Video recorder failed");
-    window.alert("Could not start recording in this browser.");
+    webmRecorder = null;
+    setCaptureStatus("WebM recorder failed");
+    window.alert("Could not start WebM recording in this browser.");
     return;
   }
 
-  videoRecorder = recorder;
-
+  webmRecorder = recorder;
   recorder.addEventListener("dataavailable", (event) => {
     if (event.data && event.data.size > 0) {
-      videoRecordingChunks.push(event.data);
+      webmRecordingChunks.push(event.data);
     }
   });
 
   recorder.addEventListener("stop", () => {
     stream.getTracks().forEach((track) => track.stop());
-    restoreAfterCapture();
-    if (videoRecordingTimer) {
-      clearTimeout(videoRecordingTimer);
-      videoRecordingTimer = null;
+    if (webmRecordingTimer) {
+      clearTimeout(webmRecordingTimer);
+      webmRecordingTimer = null;
     }
-
-    if (!videoRecordingChunks.length) {
-      videoRecorder = null;
+    restoreAfterCapture();
+    if (!webmRecordingChunks.length) {
+      webmRecorder = null;
       return;
     }
-
     const actualMime = recorder.mimeType || mimeType || "video/webm";
-    const extension = actualMime.includes("mp4") ? "mp4" : "webm";
-    const blob = new Blob(videoRecordingChunks, { type: actualMime });
+    const blob = new Blob(webmRecordingChunks, { type: actualMime });
     downloadBlob(
       blob,
-      `chladni-loop-${startTimestamp}-${targetWidth}x${targetHeight}.${extension}`,
+      `chladni-loop-${startTimestamp}-${targetWidth}x${targetHeight}.webm`,
     );
-    setCaptureStatus("Video saved");
-
-    videoRecordingChunks = [];
-    if (videoRecorder === recorder) videoRecorder = null;
+    webmRecordingChunks = [];
+    webmRecorder = null;
+    setCaptureStatus("WebM saved");
   });
 
   recorder.addEventListener("error", (event) => {
-    console.error("MediaRecorder error", event);
+    console.error("WebM recorder error", event);
     stream.getTracks().forEach((track) => track.stop());
-    restoreAfterCapture();
-    if (videoRecordingTimer) {
-      clearTimeout(videoRecordingTimer);
-      videoRecordingTimer = null;
+    if (webmRecordingTimer) {
+      clearTimeout(webmRecordingTimer);
+      webmRecordingTimer = null;
     }
-    videoRecordingChunks = [];
-    if (videoRecorder === recorder) videoRecorder = null;
-    setCaptureStatus("Video recording failed");
+    restoreAfterCapture();
+    webmRecordingChunks = [];
+    webmRecorder = null;
+    setCaptureStatus("WebM recording failed");
   });
 
   recorder.start(250);
-  setCaptureStatus(`Recording video ${targetWidth}x${targetHeight}...`, 0);
-  videoRecordingTimer = window.setTimeout(
-    () => {
-      stopVideoLoopRecording();
-    },
+  setCaptureStatus(`Recording WebM ${targetWidth}x${targetHeight}...`, 0);
+  webmRecordingTimer = window.setTimeout(
+    () => stopWebmLoopRecording(),
     Math.round(durationSeconds * 1000),
   );
 }
@@ -2569,6 +2936,16 @@ function randomizeAll() {
   CONFIG.fieldScale = Math.round((0.2 + Math.random() * 1.8) * 10) / 10;
 
   // Randomize particles
+  const minParticleCount = 50000;
+  const maxParticleCount = 500000;
+  const particleCountStep = 10000;
+  const particleCountSteps = Math.floor(
+    (maxParticleCount - minParticleCount) / particleCountStep,
+  );
+  CONFIG.particleCount =
+    minParticleCount +
+    Math.floor(Math.random() * (particleCountSteps + 1)) * particleCountStep;
+
   CONFIG.particleSize = Math.round((1.0 + Math.random() * 4.0) * 10) / 10;
   if (points) points.material.size = CONFIG.particleSize;
 
@@ -2578,9 +2955,8 @@ function randomizeAll() {
   CONFIG.color =
     "#" +
     new THREE.Color(Math.random(), Math.random(), Math.random()).getHexString();
-  applyParticleColor(CONFIG.color);
 
   rebuildField();
-  resetParticles();
+  rebuildParticles();
   if (refreshUI) refreshUI();
 }

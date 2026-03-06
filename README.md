@@ -6,28 +6,21 @@ Generative art simulation built with Three.js. This project simulates Chladni fi
 ## Key Features
 
 - **Particle System:** Renders a particle field using `THREE.Points` backed by low-level `Float32Array` buffers.
-- **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) plus a spatially varying mask for hybrid geometries.
+- **Dual-Wave Synthesis:** Blends two distinct wave algorithms (**Type A** and **Type B**) using a global mix (`waveMix`) for hybrid geometries.
 - **25+ Wave Algorithms:** Includes classic Cartesian/Radial waves plus stylized variants like Gyroid, Quasicrystal, Voronoi, Hexagonal, Lattice, RingInterference, Wallpaper, and more.
 - **Physics Simulation:** Particles include Brownian motion (jitter), drag, momentum, and a speed clamp for stable, organic motion.
 - **Logo Integration Mode:** Upload a logo (transparent PNG recommended) and map particles to fill or outline targets with alpha/luminance extraction.
 - **Text Layer Mode:** Render text as its own particle target layer using **BDO Grotesk** (bold), with independent text particle controls.
-- **High-Res Export:** Save PNG snapshots with optional transparent background.
+- **Export Tools:** Save PNG snapshots (full frame or current view), plus loop exports as GIF or WebM.
 - **Tweakpane Integration:** GUI control over particles, motion, waves, modes, camera, and capture.
 
 ## Recent Updates
 
-- Added simultaneous **icon + text** composition (both layers can run together).
-- Added independent horizontal offsets:
-  - `Logo -> X offset`
-  - `Text -> X offset`
-- Added text alignment options: `Left`, `Center`, `Right`.
-- Added text particle controls:
-  - `Particle count`
-  - `Particle size`
-  - `Text opacity`
-  - `Text color`
-- Text rendering now uses **BDO Grotesk Bold** by default.
-- Removed text weight selection from GUI and removed line-width control from GUI.
+- Added two-column controls layout (`Controls` + `Logo & Text`).
+- Added logo mask mode switch (`Auto` / `Alpha` / `Luminance`) and threshold workflow improvements.
+- Added loop export controls for GIF (`Duration`, `GIF fps`, `GIF scale`, `GIF compression`) and `Save WebM`.
+- Updated capture naming from `exportBaseSize` to **Image resolution** in the GUI.
+- Simplified controls by removing wave-only randomization and respawn behavior.
 
 
 ## Examples
@@ -45,10 +38,10 @@ Run with any local server (recommended) and open `index.html`.
 
 | Parameter        | Type    | Default  | Description                                                                                                   |
 | ---------------- | ------- | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `particleCount`  | `int`   | `300000` | Total number of particles. Higher values create denser patterns but require more CPU/GPU bandwidth.           |
+| `particleCount`  | `int`   | `500000` | Total number of particles. Higher values create denser patterns but require more CPU/GPU bandwidth.           |
 | `gridSize`       | `int`   | `256`    | Resolution of the underlying energy grid. Higher values produce smoother gradients but slower field rebuilds. |
-| `settleStrength` | `float` | `2.0`    | Strength of the gradient-descent pull (how quickly particles lock into valleys).                              |
-| `jitter`         | `float` | `0.1`    | Random Brownian motion added each frame to keep motion alive and avoid local sticking.                        |
+| `settleStrength` | `float` | `5.0`    | Strength of the gradient-descent pull (how quickly particles lock into valleys).                              |
+| `jitter`         | `float` | `0.07`   | Random Brownian motion added each frame to keep motion alive and avoid local sticking.                        |
 | `drag`           | `float` | `0.85`   | Velocity damping (friction). Higher = faster settling, lower = more drift.                                    |
 | `speedLimit`     | `float` | `2.0`    | Caps particle speed for stability and cleaner lines.                                                          |
 
@@ -56,22 +49,22 @@ Run with any local server (recommended) and open `index.html`.
 
 | Parameter                 | Type      | Default                | Description                                                                       |
 | ------------------------- | --------- | ---------------------- | --------------------------------------------------------------------------------- |
-| `waveTypeA` / `waveTypeB` | `string`  | `Cartesian` / `Radial` | Wave algorithms used to generate the field.                                       |
+| `waveTypeA` / `waveTypeB` | `string`  | `Cartesian` / `Gyroid` | Wave algorithms used to generate the field.                                       |
 | `waveMix`                 | `float`   | `0.5`                  | Global blend between Type A (0.0) and Type B (1.0).                               |
-| `fieldScale`              | `float`   | `1.0`                  | Scales the coordinate domain used when evaluating wave functions.                 |
-| `modeCount`               | `int`     | `4`                    | Number of overlapping mode layers used in field construction.                     |
-| `mRange` / `nRange`       | `object`  | `{2→4}` / `{4→8}`      | Frequency ranges used to generate per-mode parameters (`m`, `n`).                 |
+| `fieldScale`              | `float`   | `0.9`                  | Scales the coordinate domain used when evaluating wave functions.                 |
+| `modeCount`               | `int`     | `6`                    | Number of overlapping mode layers used in field construction.                     |
+| `mRange` / `nRange`       | `object`  | `{2→6}` / `{4→10}`     | Frequency ranges used to generate per-mode parameters (`m`, `n`).                 |
 | `integerModes`            | `boolean` | `true`                 | Quantizes `m`/`n` to integers (classic mode stepping).                            |
 
 ## Visuals & Camera
 
-| Parameter        | Type    | Default   | Description                                               |
-| ---------------- | ------- | --------- | --------------------------------------------------------- |
-| `color`          | `hex`   | `#b3a79b` | Particle color tint.                                      |
-| `particleSize`   | `float` | `2.0`     | Point size (screen-space).                                |
-| `exportBaseSize` | `int`   | `3000`    | Base export width in pixels (height derived from aspect). |
-| `rectAspect`     | `float` | `1.78`    | Export aspect ratio (1 = square, 1.78 ≈ landscape).       |
-| `exportOpaque`   | `bool`  | `false`   | When false, export uses a transparent background.         |
+| Parameter        | Type    | Default   | Description                                                                             |
+| ---------------- | ------- | --------- | --------------------------------------------------------------------------------------- |
+| `color`          | `hex`   | `#4f4030` | Particle color tint.                                                                    |
+| `backgroundColor` | `hex`   | `#1C1A17` | Render background color used in viewport and opaque exports.                            |
+| `particleSize`   | `float` | `2.0`     | Point size (screen-space).                                                              |
+| `exportBaseSize` | `int`   | `2048`    | Base width for **Save image** export (GUI label: `Image resolution`).                  |
+| `rectAspect`     | `float` | `1.78`    | Internal landscape aspect used for full-frame export framing (not exposed in the GUI). |
 
 ## Controls (GUI)
 
@@ -79,18 +72,22 @@ A Tweakpane UI is generated automatically on launch with the following folders:
 
 1. **Particles:** Adjust count, size, and color (count change rebuilds buffers).
 2. **Motion:** Fine-tune physics (settle strength, drag, jitter, speed limit).
-3. **Waves:** Select algorithms (Type A/B), mix ratio, noise, and field scale.
-4. **Logo:** Upload/clear logo targets, snap particles to the logo, and tune force mode (`Logo Only`/`Blend`), separate `Logo count`, `Logo size`, `Logo opacity`, `Logo color`, luminance thresholding, style (`Fill`/`Outline`), and scale.
-5. **Modes:** Control complexity (`modeCount`, `mRange`, `nRange`, integer quantization).
+3. **Waves:** Select algorithms (`Wave A`/`Wave B`), blend (`Mix`), and `Field scale`.
+4. **Modes:** Control complexity (`modeCount`, `mRange`, `nRange`) and use `Randomize All`.
+5. **Logo:** Upload/clear logo, tune `Mask`, `Threshold`, `Style`, `Invert`, `Image mix`, plus logo particle color/count/size/opacity and offsets/scale.
 6. **Text:** Enter text and control `Align`, `X offset`, `Particle count`, `Particle size`, `Text opacity`, `Text color`, and `Font size`.
-7. **Capture:** Aspect, export size, background transparency, camera pan/zoom, and export buttons.
+7. **Capture:** `Image resolution`, camera controls, PNG save buttons, GIF settings, and `Save GIF`/`Save WebM`.
 
 ### Mouse & Keyboard
 
 - **Mouse wheel:** Zoom
 - **Mouse drag:** Pan
 - **Double click:** Reset view
-- **R key:** Randomize modes and waves
+- **R key:** Randomize all
+- **S key:** Save image
+- **C key:** Save current view
+- **V key:** Save GIF loop
+- **H key:** Toggle controls
 
 ## Wave Functions
 
